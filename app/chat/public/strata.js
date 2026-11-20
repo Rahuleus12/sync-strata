@@ -573,7 +573,7 @@ function openStrataSheet(opts) {
     const lau = !!L.launcher && typeof Setup !== "undefined";
     if (lau !== (extra.childElementCount > 0)) {
       extra.replaceChildren(...(lau ? [
-        sheetItem("gear", tr("Start settings"), () => Setup.openSettingsSheet()),
+        sheetItem("gear", tr("Strata settings"), () => Setup.openSettingsSheet()),   // 11/20 0.1.3 本人: 「Strata の設定」
         sheetItem("power", tr("Stop…"), () => Setup.openStopSheet()),
       ] : []));
     }

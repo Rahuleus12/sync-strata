@@ -55,6 +55,7 @@ const Setup = (() => {
     function render() {
       if (!cur) return;
       if (cur.settings && cur.settings.ram_squeeze == null) cur.settings.ram_squeeze = "auto";   // 11/16: not set = the default, on
+      if (cur.settings && cur.settings.refusal_reduction == null) cur.settings.refusal_reduction = "off";   // 11/20 0.1.3: not set = off
       // 11/16 本人: the phone connection moved out of here to its own icon on the session list (Remote.openSheet)
       const models = (cur.models || []).map((m) => (typeof m === "string" ? [m, (modelOf(m) || {}).name || m] : [m.id, m.name || m.id]));
       body.replaceChildren(
@@ -67,7 +68,10 @@ const Setup = (() => {
         // 11/16 係 S4・G2 (本人の決めた文): ram_squeeze = auto（既定．「入」と見せる）か off（「切」）．起動・モデルの切り替えのとき 1 回だけ，
         // ほかのアプリのメモリを追い出して（アプリは閉じない）モデルに回す．
         choice(tr("Memory push-out"), "ram_squeeze", [["auto", tr("Push out")], ["off", tr("Leave alone")]],
-          tr("When starting or switching models, other apps' memory is pushed out and given to the model. No apps are closed.")));
+          tr("When starting or switching models, other apps' memory is pushed out and given to the model. No apps are closed.")),
+        // 11/20 0.1.3 本人の決定: 拒否を減らす（本家 Strata の制御ベクトル．既定は切．次の起動から効く）．文は本人が確認箱で OK
+        choice(tr("Fewer refusals (uncensored, experimental)"), "refusal_reduction", [["off", tr("Leave alone")], ["on", tr("Reduce")]],
+          tr("With Reduce, the model declines less often. Its safety behavior is weakened too, so you are responsible for what you have it write.")));
       if (typeof CtxSettings !== "undefined") body.append(...CtxSettings.extras());   // 11/15 係 C
       if (typeof UpdateView !== "undefined") body.append(...UpdateView.extras());     // 11/18 係 W9: 更新
     }
@@ -81,7 +85,7 @@ const Setup = (() => {
       }
       render();
     }
-    openSheet([h("div", { class: "sheet-title" }, tr("Start settings")), note, body]);
+    openSheet([h("div", { class: "sheet-title" }, tr("Strata settings")), note, body]);   // 11/20 0.1.3 本人: 題は「Strata の設定」
     (Spec.v ? Promise.resolve() : Spec.load()).then(() => settingsCall(null)).then((b) => { cur = b; render(); }, (e) => body.replaceChildren(h("div", { class: "sheet-note fit-warn" }, e.message)));
   }
 

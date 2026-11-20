@@ -51,6 +51,7 @@ def _layout():
     if _installed():
         j = lambda *p: os.path.join(APP, *p)
         prof = j("engine", "data", "expert-profile-upstream.bin")
+        rv = j("engine", "data", "Qwen3.8-Flash-Next-experimental-speed-projection.gguf")
         # 11/15 夜: エンジンは世代ごとの部品 engine-<種類>（cuda13・cuda12・hip-*）．この PC の GPU に合う物（sync_env）を使う．
         # 無ければ前の並び（enginein）
         try:
@@ -65,6 +66,7 @@ def _layout():
                 "engine_exe": os.path.join(bin_, "strata" + X),
                 "engine_lib_dirs": [bin_] + [d for d in (os.path.join(bin_, "rocm", "bin"),) if os.path.isdir(d)],   # HIP: ROCm の DLL と GEMM のカーネル "engine_cwd": j("engine"), "engine_kind": kind,
                 "engine_template": os.path.join(HERE, "engine-template.json"), "expert_profile": prof if os.path.isfile(prof) else None,
+                "refusal_vector": rv if os.path.isfile(rv) else None,   # 11/20 0.1.3: 拒否を減らす制御ベクトル（engine\data）
                 "slot_save_path": None, "stop_ps1": None, "dsh_root": j("dsh"), "node": j("node", "dsh-node" + X),
                 "dsh_profile": j("pack", "dsh-profile"), "relay_js": j("chat", "server.mjs"), "proxy_js": j("chat", "session-proxy.mjs"),
                 "catalog": None, "catalog_dist": j("chat", "models", "models.dist.json"), "daily_choice": None, "packs_extra": [],
@@ -75,7 +77,7 @@ def _layout():
         d = {}
     out = {"kind": "dev" if d else "none", "packs_extra": d.get("packs_extra") or []}
     for k in ("python", "server_py", "engine_exe", "engine_template", "slot_save_path", "stop_ps1", "dsh_root", "node", "dsh_profile",
-              "relay_js", "proxy_js", "catalog", "catalog_dist", "daily_choice", "expert_profile", "engine_cwd"):
+              "relay_js", "proxy_js", "catalog", "catalog_dist", "daily_choice", "expert_profile", "engine_cwd", "refusal_vector"):
         out[k] = os.path.normpath(d[k]) if d.get(k) else None
     out["engine_lib_dirs"] = [os.path.normpath(x) for x in d.get("engine_lib_dirs") or []] or None
     return out
@@ -140,6 +142,9 @@ SCHEMA = {
     "ram_squeeze":      ("起動・モデルの切り替えのとき，ほかのアプリの RAM を追い出して専門家に回す auto（既定．入）か off", _choice("auto", "off"), "auto"),
     # 11/16: 専門家の並びをこの PC の会話で学習して保存する．測り（Sync-S R4 の dsh の会話）で学習した並びは本家の並びより速くならなかった
     # （93.7 対 96.1 tok/s）ので既定は off（本人の決まり: decode を遅くしない．速くならない物は既定で入れない）
+    # 11/20 0.1.3（本人の決定）: 拒否を減らす（無検閲・試験的）．本家 Strata の Experimental speed projection と同じ制御ベクトル
+    # （refusal-direction projection．層 4〜44 で h -= (h·v) v）を起動時に読み込む．既定は off．on のときだけ decode が少し遅くなる
+    "refusal_reduction": ("拒否を減らす（無検閲・試験的）on か off（既定）．書かせた内容は使う人の責任", _choice("on", "off"), "off"),
     "expert_learning":  ("専門家の並びをこの PC の会話で学習して保存する on か off（既定）", _choice("on", "off"), "off"),
     "context":          ("文脈の長さ（トークン．auto: 262144）", _num(4096, 1048576, True), 262144),
     "api_port":         ("エンジン（API）の待ち受けの番号", _num(1, 65535, True), 8080),

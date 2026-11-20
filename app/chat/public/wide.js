@@ -98,8 +98,14 @@ function openSettingsSheet() {
   const auto = tr("Automatic");
   const langs = [[null, `${auto}`], ...Object.entries(I18n.LANGS).map(([code, l]) => [code, l.name])];
   const body = h("div", { class: "set-body" });
+  let sh = null;
+  // 11/20 0.1.3 本人: 一番上に「Strata の設定」へ飛ぶボタン（Strata の枠は生成中に押すと書いている会話へ飛ぶので，
+  // 読み込み中・生成中やスマホからでも起動の設定を開けるように）．起動の道具から起こした中継のときだけ
+  const strataItem = () => (typeof Setup !== "undefined" && Setup.launcher()
+    ? [sheetItem("gear", tr("Strata settings"), () => { if (sh) sh.close(true); Setup.openSettingsSheet(); })] : []);
   function render() {
     body.replaceChildren(
+      ...strataItem(),
       choice(tr("Language"), langs, I18n.saved(), (v) => { if (v !== I18n.saved()) I18n.choose(v); }),
       choice(tr("Enter key"), [[null, auto], ["send", tr("Sends")], ["newline", tr("New line")]], Prefs.get("enter"),
         (v) => { Prefs.set("enter", v); render(); }),
@@ -117,7 +123,7 @@ function openSettingsSheet() {
         ].map(([k, v]) => h("tr", {}, h("td", { class: "set-key" }, k), h("td", {}, v)))))));
   }
   render();
-  openSheet([h("div", { class: "sheet-title" }, tr("Settings")), body]);
+  sh = openSheet([h("div", { class: "sheet-title" }, tr("Settings")), body]);
 }
 
 // Shortcuts for the whole page (all widths: an iPad or a phone with a keyboard gets them too).

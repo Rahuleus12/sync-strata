@@ -368,6 +368,11 @@ def make_config(pick, engine, extra_env, context=None):
             args[args.index("--expert-profile") + 1] = LAY["expert_profile"]
         else:
             args += ["--expert-profile", LAY["expert_profile"]]
+    # 11/20 0.1.3（本人の決定）: 設定 refusal_reduction が on なら，拒否を減らす制御ベクトルを読み込む（本家 Strata の
+    # Experimental speed projection と同じ引数．頼みの "experimental_speed_projection": false で頼みごとに切れる）
+    if H.effective().get("refusal_reduction") == "on" and LAY.get("refusal_vector"):
+        args += ["--control-vector-scaled", LAY["refusal_vector"] + ":1.0", "--control-vector-layer-range", "4", "44",
+                 "--cvec-mode", "project", "--cvec-dir", "per-layer"]
     sp0 = H.shared_paths()
     if LAY.get("vision_exe") and "vision.mmproj" in sp0 and not isinstance(c.get("vision"), dict):
         # 11/15 夜: 入れた先のキットに画像の読み取りのエンジンがあり，mmproj が手元にあれば画像を読む（無ければ下で外す）

@@ -562,5 +562,9 @@
  "s0562": "Engine",
  "s0563": "Install tools",
  "s0564": "Licenses",
- "s0565": "File reads (reclaimable) {0} GiB"
+ "s0565": "File reads (reclaimable) {0} GiB",
+ "s0566": "Strata settings",
+ "s0567": "Fewer refusals (uncensored, experimental)",
+ "s0568": "Reduce",
+ "s0569": "With Reduce, the model declines less often. Its safety behavior is weakened too, so you are responsible for what you have it write."
 }
