@@ -127,7 +127,15 @@ def update_sim(a):
         before = json.load(open(os.path.join(app, 'state', 'state.json'), encoding='utf-8'))
         print('前:', before.get('release'), {k: v.get('version') for k, v in before['components'].items()})
         upd = os.path.join(new_dist, 'update.cmd') if os.path.exists(os.path.join(new_dist, 'update.cmd')) else None
-        if upd:
+        if a.repair:
+            # 11/21 0.1.4（GitHub Issue #6）: 0.1.3 までの setup は英語などの Windows で最後まで行かず，記録（state.json）だけが無い入れ先が残る．
+            # 記録を消してから新しい配布物の setup を流し直し，全部の部品（入れ替えなかった物も）が新しい記録に載るかを見る
+            os.remove(os.path.join(app, 'state', 'state.json'))
+            print('記録（state.json）を消した（壊れた入れ先の形）')
+            ps = os.path.join(new_dist, 'installer', 'installer.ps1')
+            cmd = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps, 'setup', '-Source', os.path.join(new_dist, 'feed'),
+                   '-AppDir', app, '-SyncHome', home, '-ModelsDir', models, '-ShortcutDir', os.path.join(work, 'sc')]
+        elif upd:
             cmd = ['cmd', '/c', upd, '--source', new_dist, '--app-dir', app, '--sync-home', home, '--no-stop']
         else:
             ps = os.path.join(new_dist, 'installer', 'installer.ps1')
@@ -162,6 +170,7 @@ def main():
     u = sp.add_parser('update-sim'); u.add_argument('--new-dist', required=True)
     g = u.add_mutually_exclusive_group(required=True); g.add_argument('--from-feed'); g.add_argument('--from-app')
     u.add_argument('--work'); u.add_argument('--keep', action='store_true')
+    u.add_argument('--repair', action='store_true', help='11/21 #6: 記録を消してから新しい setup を流し直す（更新の代わり）')
     a = ap.parse_args()
     return versions(a) if a.cmd == 'versions' else update_sim(a)
 

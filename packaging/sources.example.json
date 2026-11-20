@@ -1,19 +1,25 @@
 {
  "note": "Template. Replace <your-path> with where the parts live on your build machine. Original note: 部品の元の置き場（作者の PC．組み立てる build_pack.py が読む．配布物には入らない）．版を上げたら version を直す．shell・launcher・chat はS の物ができたら置き場を直す（optional: まだ無ければ飛ばす）．",
- "release": "0.1.3",
+ "release": "0.1.4",
  "update_feed": "https://github.com/{github_account}/sync-strata/releases/latest/download",
  "shortcuts": [
   {
    "name": "Sync-Strata",
+   "name_en": "Sync-Strata",
+   "name_zh": "Sync-Strata",
    "target": "app/shell/Sync-Strata.exe",
    "where": [
     "desktop",
     "startmenu"
    ],
-   "description": "Sync-Strata（ローカルの LLM）"
+   "description": "Sync-Strata（ローカルの LLM）",
+   "description_en": "Local LLM Sync-Strata",
+   "description_zh": "本地 LLM Sync-Strata"
   },
   {
    "name": "Sync-Strata の更新",
+   "name_en": "Update Sync-Strata",
+   "name_zh": "更新 Sync-Strata",
    "target": "update.cmd",
    "where": [
     "startmenu"
@@ -21,6 +27,8 @@
   },
   {
    "name": "Sync-Strata を前の版に戻す",
+   "name_en": "Roll back Sync-Strata",
+   "name_zh": "Sync-Strata 回退到上一版",
    "target": "rollback.cmd",
    "where": [
     "startmenu"
@@ -28,6 +36,8 @@
   },
   {
    "name": "Sync-Strata を消す",
+   "name_en": "Uninstall Sync-Strata",
+   "name_zh": "卸载 Sync-Strata",
    "target": "uninstall.cmd",
    "where": [
     "startmenu"
@@ -38,7 +48,7 @@
   {
    "id": "pack",
    "name": "配布の道具（setup・update・uninstall と dsh の設定のひな形）",
-   "version": "0.1.3",
+   "version": "0.1.4",
    "from": [
     {
      "src": "src/pack-component"
@@ -60,7 +70,7 @@
    "id": "pack",
    "os": "linux",
    "name": "配布の道具（setup・update・uninstall と dsh の設定のひな形．Linux）",
-   "version": "0.1.3",
+   "version": "0.1.4",
    "from": [
     {
      "src": "src/pack-component"

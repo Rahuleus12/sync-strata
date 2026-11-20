@@ -453,8 +453,16 @@ def main(here, argv):
     app = locate_app(o, here)
     state_p = os.path.join(app, 'state', 'state.json')
     if not os.path.isfile(state_p):
-        say(f'!! Sync-Strata が入っていません（{app}）。はじめて入れるときは、配布物の {"setup.cmd" if WIN else "setup.sh"} を流してください。',
-            f'!! Sync-Strata is not installed in {app}. For a first install, run {"setup.cmd" if WIN else "setup.sh"} from the download.')
+        setup = "setup.cmd" if WIN else "setup.sh"
+        if os.path.isdir(os.path.join(app, 'app', 'launcher')):
+            # 11/21 0.1.4（GitHub Issue #6）: 部品はあるのに記録だけが無い（0.1.3 までの setup が英語などの Windows で最後まで行かなかった）
+            say(f'!! Sync-Strata は入っていますが、入れた記録（state\\state.json）がありません（{app}）。'
+                f'新しい版の zip を展開して {setup} をもう一度流すと直ります（設定・会話・モデルは残ります）。',
+                f'!! Sync-Strata is installed in {app}, but its install record (state\\state.json) is missing. '
+                f'Unpack the zip of the new version and run {setup} once more to fix it (your settings, chats and models are kept).')
+            return 2
+        say(f'!! Sync-Strata が入っていません（{app}）。はじめて入れるときは、配布物の {setup} を流してください。',
+            f'!! Sync-Strata is not installed in {app}. For a first install, run {setup} from the download.')
         return 2
     state = read_json(state_p)
     cur = state.get('release') or '?'

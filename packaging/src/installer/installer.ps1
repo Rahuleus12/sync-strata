@@ -352,6 +352,12 @@ function Sync-Components($feed, [bool]$isUpdate, [bool]$variants = $false) {
             hashed_on_check = $x.have.hashed; files = [int]$c.files; bytes = [int64]$c.installed_bytes; install_s = 0
         }
         if ($x.action -eq 'skip') {
+            # 11/21 0.1.4（#6）: 記録（state.json）が無い入れ先に setup を流し直したとき，入れ替えずに済んだ部品も記録に載せる
+            # （載せないと，更新の道具が「入っていない」と見て全部を落とし直す）．中身は入っている物の版と files_sha256
+            if ($null -eq (Get-Prop $State.components $id) -and $x.have.version) {
+                Set-Prop $State.components $id ([pscustomobject]@{ version = [string]$x.have.version; files_sha256 = [string]$x.have.files_sha256;
+                    sha256 = $(if ($x.have.files_sha256 -eq $c.files_sha256) { [string]$c.sha256 } else { '' }); at = (Get-Date).ToString('s') })
+            }
             Add-Result '飛ばした' ('{0} {1}（{2}．調べ {3:N1} 秒）' -f $id, $c.version, $x.why, $x.check_s)
             [void]$Comps.Add([pscustomobject]$rec); continue
         }
@@ -389,23 +395,62 @@ function Get-ShortcutDirs {
     if ($ShortcutDir) { return @{ desktop = (Join-Path $ShortcutDir 'Desktop'); startmenu = (Join-Path $ShortcutDir 'StartMenu\Sync-Strata') } }
     return @{ desktop = [Environment]::GetFolderPath('Desktop'); startmenu = (Join-Path ([Environment]::GetFolderPath('Programs')) 'Sync-Strata') }
 }
+# 11/21 0.1.4（GitHub Issue #6）: アイコンの名前と説明は Windows の表示の言語で選ぶ（ja・zh．ほかは en）．
+# 一覧の name・description が日本語，name_en・name_zh・description_en・description_zh が訳（無ければ日本語のまま）．
+# 試しでは $env:SYNC_SHORTCUT_LANG（ja・en・zh）で選べる
+function Get-ShortcutLang {
+    $l = [string]$env:SYNC_SHORTCUT_LANG
+    if ($l -in @('ja', 'en', 'zh')) { return $l }
+    $n = ''; try { $n = [string](Get-UICulture).Name } catch { }
+    if ($n -like 'ja*') { return 'ja' }
+    if ($n -like 'zh*') { return 'zh' }
+    return 'en'
+}
+function Get-ShortcutText($s, [string]$key, [string]$lang, [string]$fallback) {
+    $t = ''
+    if ($lang -ne 'ja') {
+        $t = [string](Get-Prop $s ($key + '_' + $lang) '')
+        if (-not $t) { $t = [string](Get-Prop $s ($key + '_en') '') }
+    }
+    if (-not $t) { $t = [string](Get-Prop $s $key $fallback) }
+    return $t
+}
+function Test-Ansi([string]$t) { $e = [Text.Encoding]::Default; return ($e.GetString($e.GetBytes($t)) -eq $t) }
 function Set-Shortcuts($m) {
     $dirs = Get-ShortcutDirs
+    $lang = Get-ShortcutLang
     $made = @(); $had = 0; $ws = New-Object -ComObject WScript.Shell
     foreach ($s in @(Get-Prop $m 'shortcuts' @())) {
+        $name = Get-ShortcutText $s 'name' $lang ([string]$s.name)
         $target = Join-Path $AppDir (([string]$s.target) -replace '/', '\')
-        if (-not (Test-Path -LiteralPath $target)) { Add-Result '飛ばした' ('アイコン「{0}」（行き先 {1} がまだ無い）' -f $s.name, $s.target); continue }
+        if (-not (Test-Path -LiteralPath $target)) { Add-Result '飛ばした' ('アイコン「{0}」（行き先 {1} がまだ無い）' -f $name, $s.target); continue }
+        # 説明の欄も WScript.Shell がシステムの ANSI の文字コードに落とす（無い字は「?」になる）．落ちる字があれば英語の説明に，それも落ちれば空に
+        $desc = Get-ShortcutText $s 'description' $lang $name
+        if (-not (Test-Ansi $desc)) {
+            $desc = [string](Get-Prop $s 'description_en' (Get-Prop $s 'name_en' ''))
+            if (-not (Test-Ansi $desc)) { $desc = '' }
+        }
         foreach ($w in @($s.where)) {
             $d = $dirs[[string]$w]; if (-not $d) { continue }
             New-Item -ItemType Directory -Force $d | Out-Null
-            $lnk = Join-Path $d ($s.name + '.lnk')
+            $lnk = Join-Path $d ($name + '.lnk')
             if (Test-Path -LiteralPath $lnk) { $had++ }
-            $sc = $ws.CreateShortcut($lnk)
-            $sc.TargetPath = $target; $sc.Arguments = [string](Get-Prop $s 'args' ''); $sc.WorkingDirectory = (Split-Path -Parent $target)
-            $icon = Get-Prop $s 'icon'; if ($icon) { $sc.IconLocation = (Join-Path $AppDir ($icon -replace '/', '\')) }
-            $sc.Description = [string](Get-Prop $s 'description' $s.name)
-            $sc.Save()
-            $made += $lnk
+            # WScript.Shell は道のりもシステムの ANSI の文字コードに落とすので，英語などの Windows では日本語の名前が「?」になり，
+            # Save() が失敗して setup が最後まで行かなかった（#6）．英数字の仮の名前で作ってから，Unicode のまま扱える PowerShell で名前を変える．
+            # 1 つ作れなくても setup は止めない（注意に出す）
+            $tmp = Join-Path $d ('~sync-strata-' + [Guid]::NewGuid().ToString('N') + '.lnk')
+            try {
+                $sc = $ws.CreateShortcut($tmp)
+                $sc.TargetPath = $target; $sc.Arguments = [string](Get-Prop $s 'args' ''); $sc.WorkingDirectory = (Split-Path -Parent $target)
+                $icon = Get-Prop $s 'icon'; if ($icon) { $sc.IconLocation = (Join-Path $AppDir ($icon -replace '/', '\')) }
+                if ($desc) { $sc.Description = $desc }
+                $sc.Save()
+                Move-Item -LiteralPath $tmp -Destination $lnk -Force
+                $made += $lnk
+            } catch {
+                Add-Result '注意' ('アイコン「{0}」を作れなかった: {1}' -f $name, $_.Exception.Message)
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            }
         }
     }
     $State.shortcuts = @(@($State.shortcuts) + $made | Select-Object -Unique)
@@ -609,20 +654,27 @@ try {
             Say "Sync-Strata の setup: 入れる先 $AppDir"
             $feed = Open-Feed $Source
             New-Item -ItemType Directory -Force $AppBin, $StateDir | Out-Null
-            Sync-Components $feed $false
-            $script:EngineVariant = Get-EngineVariant
-            if ($script:EngineVariant -and $script:ExitCode -ne 7) { Sync-Components $feed $false $true }
-            elseif (-not $script:EngineVariant) { Add-Result '飛ばした' 'エンジン（この PC の GPU に合う物が無い．下の「対応外」を見る）' }
-            if ($script:ExitCode -ne 7) {
-                Set-Stubs
-                $State.feed = Get-Prop $feed.m 'update_feed' ''
-                if (-not $NoShortcuts) { Set-Shortcuts $feed.m }
-                New-Item -ItemType Directory -Force $SyncHome | Out-Null
-                Set-DshProfile
-                Find-Models
-                Show-EnvCheck
+            # 11/21 0.1.4（GitHub Issue #6）: 部品を入れた後の仕上げ（アイコン・dsh の設定・モデル探し・対応環境の調べ）のどれかが失敗しても，
+            # 更新・前の版に戻す・消すが見る記録（state.json）は必ず書く．前は最後の 1 行だったので，英語などの Windows でアイコンの作成が
+            # 失敗すると記録が残らず，入れたのに update.cmd と画面の「更新」が「入っていない」と言っていた．
+            # 何も入れずに終わった（動いているので止めた）入れ先で記録が無かったときは，空の記録を作らない（作ると全部を落とし直す更新になる）
+            try {
+                Sync-Components $feed $false
+                $script:EngineVariant = Get-EngineVariant
+                if ($script:EngineVariant -and $script:ExitCode -ne 7) { Sync-Components $feed $false $true }
+                elseif (-not $script:EngineVariant) { Add-Result '飛ばした' 'エンジン（この PC の GPU に合う物が無い．下の「対応外」を見る）' }
+                if ($script:ExitCode -ne 7) {
+                    Set-Stubs
+                    $State.feed = Get-Prop $feed.m 'update_feed' ''
+                    if (-not $NoShortcuts) { Set-Shortcuts $feed.m }
+                    New-Item -ItemType Directory -Force $SyncHome | Out-Null
+                    Set-DshProfile
+                    Find-Models
+                    Show-EnvCheck
+                }
+            } finally {
+                if ($script:ExitCode -ne 7 -or @($State.components.PSObject.Properties).Count -gt 0 -or (Test-Path -LiteralPath $StatePath)) { Write-JsonFile $State $StatePath }
             }
-            Write-JsonFile $State $StatePath
         }
         'update' {
             if (-not (Test-Path -LiteralPath $StatePath)) { throw "Sync-Strata が入っていない（$AppDir）．先に setup.cmd を流してください．" }
