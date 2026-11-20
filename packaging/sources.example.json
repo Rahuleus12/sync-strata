@@ -1,6 +1,6 @@
 {
  "note": "Template. Replace <your-path> with where the parts live on your build machine. Original note: 部品の元の置き場（作者の PC．組み立てる build_pack.py が読む．配布物には入らない）．版を上げたら version を直す．shell・launcher・chat はS の物ができたら置き場を直す（optional: まだ無ければ飛ばす）．",
- "release": "0.1.2",
+ "release": "0.1.3",
  "update_feed": "https://github.com/{github_account}/sync-strata/releases/latest/download",
  "shortcuts": [
   {
@@ -38,7 +38,7 @@
   {
    "id": "pack",
    "name": "配布の道具（setup・update・uninstall と dsh の設定のひな形）",
-   "version": "0.1.2",
+   "version": "0.1.3",
    "from": [
     {
      "src": "src/pack-component"
@@ -60,7 +60,7 @@
    "id": "pack",
    "os": "linux",
    "name": "配布の道具（setup・update・uninstall と dsh の設定のひな形．Linux）",
-   "version": "0.1.2",
+   "version": "0.1.3",
    "from": [
     {
      "src": "src/pack-component"
@@ -115,7 +115,7 @@
   {
    "id": "launcher",
    "name": "起動の道具（sync.py）",
-   "version": "0.1.2",
+   "version": "0.1.3",
    "optional": true,
    "from": [
     {
@@ -179,14 +179,14 @@
   {
    "id": "engine",
    "name": "エンジンの共通の部分（serve と学習なしの表）",
-   "version": "0.2.7-win1118r3",
+   "version": "0.2.7-win1120",
    "from": [
     {
      "src": "<your-path>/QuantLab/release/serve-py-1118r2",
      "dst": "serve"
     },
     {
-     "src": "<your-path>/QuantLab/release/dist-buildjson-1118r3/BUILD.json"
+     "src": "<your-path>/QuantLab/release/dist-buildjson-1120/BUILD.json"
     },
     {
      "src": "<your-path>/QuantLab/release/kit-win-1116a/bench/expert-profile-upstream.bin",
@@ -200,7 +200,7 @@
    "id": "engine",
    "os": "linux",
    "name": "エンジンの共通の部分（serve と学習なしの表．Linux）",
-   "version": "0.2.7-linux1118r",
+   "version": "0.2.7-linux1120",
    "note": "0.1.0-1115 の Linux の zip にこの部品が無く sync up が起きなかった（kit-linux-1115r に serve-py・bench が無く optional で黙って飛んだ）．serve-py と expert-profile-upstream.bin は Windows の engine と同じ kit-win-1116a（Linux の実機で起動を確かめた．linux-main-check-1116.md 3b），BUILD.json は kit-linux-1115r．optional は外した（元が無ければ組み立てが止まる）．版は Linux 側の試作（engine-fix-1116，files_sha256 398ed4e6…）と同じ中身なので変えない．",
    "from": [
     {
@@ -208,7 +208,7 @@
      "dst": "serve"
     },
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1118r/BUILD.json"
+     "src": "<your-path>/QuantLab/release/dist-buildjson-linux-1120/BUILD.json"
     },
     {
      "src": "<your-path>/QuantLab/release/kit-win-1116a/bench/expert-profile-upstream.bin",
@@ -219,12 +219,12 @@
   {
    "id": "engine-cuda13",
    "name": "エンジン（NVIDIA RTX 20〜50・GTX 16．CUDA 13）",
-   "version": "0.2.7-win1118r3",
+   "version": "0.2.7-win1120",
    "variant": "cuda13",
    "main_zip": true,
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-win-1118r3/bin",
+     "src": "<your-path>/QuantLab/release/kit-win-1120/bin",
      "dst": "bin"
     }
    ],
@@ -234,7 +234,7 @@
    "id": "engine-cuda13",
    "os": "linux",
    "name": "エンジン（NVIDIA RTX 20〜50・GTX 16．CUDA 13．Linux）",
-   "version": "0.2.7-linux1118r",
+   "version": "0.2.7-linux1120",
    "variant": "cuda13",
    "main_zip": true,
    "optional": true,
@@ -245,7 +245,7 @@
    ],
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1118r/bin",
+     "src": "<your-path>/QuantLab/release/kit-linux-1120/bin",
      "dst": "bin"
     }
    ]
@@ -253,12 +253,12 @@
   {
    "id": "engine-cuda12",
    "name": "エンジン（NVIDIA GTX 10・Tesla P100・V100・Titan V．CUDA 12．試験的）",
-   "version": "0.2.7-win1118r3",
+   "version": "0.2.7-win1120",
    "variant": "cuda12",
    "main_zip": false,
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-win-1118r3-cu12v/bin",
+     "src": "<your-path>/QuantLab/release/kit-win-1120-cu12v/bin",
      "dst": "bin"
     }
    ],
@@ -269,7 +269,7 @@
    "id": "engine-cuda12",
    "os": "linux",
    "name": "エンジン（NVIDIA GTX 10・Tesla P100・V100・Titan V．CUDA 12．試験的．Linux）",
-   "version": "0.2.7-linux1118r",
+   "version": "0.2.7-linux1120",
    "variant": "cuda12",
    "main_zip": false,
    "optional": true,
@@ -280,7 +280,7 @@
    ],
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1118r-cu12v/bin",
+     "src": "<your-path>/QuantLab/release/kit-linux-1120-cu12v/bin",
      "dst": "bin"
     }
    ]
@@ -288,16 +288,16 @@
   {
    "id": "engine-hip-rx9070",
    "name": "エンジン（Radeon RX 9000．試験的）",
-   "version": "0.2.7-win1119r2",
+   "version": "0.2.7-win1120",
    "variant": "hip-rx9070",
    "main_zip": false,
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-win-1119r2-hip-rx9070/bin",
+     "src": "<your-path>/QuantLab/release/kit-win-1120-hip-rx9070/bin",
      "dst": "bin"
     },
     {
-     "src": "<your-path>/QuantLab/release/kit-win-1119r2-hip-rx9070/BUILD.json",
+     "src": "<your-path>/QuantLab/release/kit-win-1120-hip-rx9070/BUILD.json",
      "dst": ""
     }
    ],
@@ -309,7 +309,7 @@
    "id": "engine-hip-rx9070",
    "os": "linux",
    "name": "エンジン（Radeon RX 9000．試験的．Linux）",
-   "version": "0.2.7-linux1119r2",
+   "version": "0.2.7-linux1120",
    "variant": "hip-rx9070",
    "main_zip": false,
    "optional": true,
@@ -320,11 +320,11 @@
    ],
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1119r2-hip-rx9070/bin",
+     "src": "<your-path>/QuantLab/release/kit-linux-1120-hip-rx9070/bin",
      "dst": "bin"
     },
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1119r2-hip-rx9070/BUILD.json",
+     "src": "<your-path>/QuantLab/release/dist-buildjson-linux-1120-hip-rx9070/BUILD.json",
      "dst": ""
     }
    ],
@@ -333,16 +333,16 @@
   {
    "id": "engine-hip-rdna3",
    "name": "エンジン（Radeon RX 7000．試験的）",
-   "version": "0.2.7-win1119r2",
+   "version": "0.2.7-win1120",
    "variant": "hip-rdna3",
    "main_zip": false,
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-win-1119r2-hip-rdna3/bin",
+     "src": "<your-path>/QuantLab/release/kit-win-1120-hip-rdna3/bin",
      "dst": "bin"
     },
     {
-     "src": "<your-path>/QuantLab/release/kit-win-1119r2-hip-rdna3/BUILD.json",
+     "src": "<your-path>/QuantLab/release/kit-win-1120-hip-rdna3/BUILD.json",
      "dst": ""
     }
    ],
@@ -354,7 +354,7 @@
    "id": "engine-hip-rdna3",
    "os": "linux",
    "name": "エンジン（Radeon RX 7000．試験的．Linux）",
-   "version": "0.2.7-linux1119r2",
+   "version": "0.2.7-linux1120",
    "variant": "hip-rdna3",
    "main_zip": false,
    "optional": true,
@@ -365,11 +365,11 @@
    ],
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1119r2-hip-rdna3/bin",
+     "src": "<your-path>/QuantLab/release/kit-linux-1120-hip-rdna3/bin",
      "dst": "bin"
     },
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1119r2-hip-rdna3/BUILD.json",
+     "src": "<your-path>/QuantLab/release/dist-buildjson-linux-1120-hip-rdna3/BUILD.json",
      "dst": ""
     }
    ],
@@ -378,16 +378,16 @@
   {
    "id": "engine-hip-rdna2",
    "name": "エンジン（Radeon RX 6000．試験的）",
-   "version": "0.2.7-win1119r2",
+   "version": "0.2.7-win1120",
    "variant": "hip-rdna2",
    "main_zip": false,
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-win-1119r2-hip-rdna2/bin",
+     "src": "<your-path>/QuantLab/release/kit-win-1120-hip-rdna2/bin",
      "dst": "bin"
     },
     {
-     "src": "<your-path>/QuantLab/release/kit-win-1119r2-hip-rdna2/BUILD.json",
+     "src": "<your-path>/QuantLab/release/kit-win-1120-hip-rdna2/BUILD.json",
      "dst": ""
     }
    ],
@@ -399,7 +399,7 @@
    "id": "engine-hip-rdna2",
    "os": "linux",
    "name": "エンジン（Radeon RX 6000．試験的．Linux）",
-   "version": "0.2.7-linux1119r2",
+   "version": "0.2.7-linux1120",
    "variant": "hip-rdna2",
    "main_zip": false,
    "optional": true,
@@ -410,11 +410,11 @@
    ],
    "from": [
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1119r2-hip-rdna2/bin",
+     "src": "<your-path>/QuantLab/release/kit-linux-1120-hip-rdna2/bin",
      "dst": "bin"
     },
     {
-     "src": "<your-path>/QuantLab/release/kit-linux-1119r2-hip-rdna2/BUILD.json",
+     "src": "<your-path>/QuantLab/release/dist-buildjson-linux-1120-hip-rdna2/BUILD.json",
      "dst": ""
     }
    ],

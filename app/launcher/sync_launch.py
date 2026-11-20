@@ -435,6 +435,9 @@ def make_config(pick, engine, extra_env, context=None):
     env.update(STRATA_ROUTE_TAIL_SKIP=str(H.engine_tail(pick["R"])), STRATA_QL_DYN_TIER_GIB="0", STRATA_UNBUFFERED_LOAD=("0" if _buffered else "1"),
                STRATA_PARTIAL_PIN_GIB=pin_gib(pick["budget"]))
     env.update(AUTO_ENV)
+    # 11/20 0.1.3: 自動の調整（STRATA_QL_PCIE_AUTO）が落ち着いた割合をホストの run に覚え，次の起動はそこから始める
+    # （エンジンが pack・GPU・pcie-mode などのキーで照らし合わせる．古いエンジンはこの変数を読まないだけ）
+    env.setdefault("STRATA_QL_PCIE_AUTO_STATE", H.path("run", "pcie-share.json"))
     if _buffered and float(pick.get("conv_cache_extra_gib") or 0) > 0:   # 11/18 E1: 会話の預け置きの分のコミットをエンジンに残させる
         try:
             _hr = float(env.get("STRATA_RESIDENT_HEADROOM_GIB") or 2)
@@ -460,7 +463,9 @@ def make_config(pick, engine, extra_env, context=None):
         # 11/19 0.1.2（本人「単体の Radeon の decode も出来る限りの対策を」）: Radeon は PCIe 越しに RAM の専門家を受け取るのが遅い
         # （GitHub の Issue #2 の RX 9070 XT の方: decode の窓 63〜86 ms のうち 42〜64 ms が PCIe の分の待ち，自動の調整が 0.70→0.57→0.45 と
         # 下げ続けていた）．自動の調整（STRATA_QL_PCIE_AUTO，0.199〜1.0）はそのまま働くので，始める値だけ 0.7 から 0.4 に下げる
-        if "--pcie-frac" in args and args[args.index("--pcie-frac") + 1] == "0.7":
+        # 11/20 0.1.3（本人 OK）: 0.4 は Windows だけ．Linux の RX 7800 XT（GitHub Issue #3）で短い文の decode が 0.1.1 の 90・94 から
+        # 54・59 tok/s に落ちた（0.4 から自動の調整が戻りきる前に頼みが終わる見込み）ので，Linux は 0.1.1 と同じ 0.7 から始める
+        if os.name == "nt" and "--pcie-frac" in args and args[args.index("--pcie-frac") + 1] == "0.7":
             setarg("--pcie-frac", "0.4")
         # 11/19 0.1.2（本人の判断，確認箱）: RAM の専門家の置き場の取り方を起動時に測る STRATA_HIP_ARENA=auto（エンジン d278210e）は，
         # 内蔵 Radeon では Windows・Linux とも古い中身の試験が判定できず切り替わらず，起動が 6〜10 秒延びた．効き目の見込みが立つまで
@@ -970,8 +975,10 @@ def main(argv=None):
         # 11/15 夜: Radeon には nvidia-smi が無い．VRAM は表示アダプターの欄の大きさから，空きは 1.5 GiB 引いた見込み（不明なら 0＝全部 RAM に），
         # 画面はこの GPU につないでいる（予約を多めに）と見て，控えめな側に決める
         vg = ev["gpu"].get("vram_gib")
+        # 11/20 0.1.3: VRAM の総量も渡す（前は渡さず，予約の決め方が 16 GiB の Radeon でも「10 GiB 未満」の 512 MiB になっていた．
+        # GitHub Issue #2 の RX 6900 XT は 512 MiB の予約で，全部読んだ後の VRAM の空きが 320 MiB だった）
         pre["gpus"] = [{"name": ev["gpu"].get("name"), "display_active": "Enabled", "vram_free_mib": max(0, (float(vg) - 1.5) * 1024) if vg else 0,
-                        "assumed": True}]
+                        "vram_total_mib": float(vg) * 1024 if vg else 0, "assumed": True}]
         say(f"  ・Radeon（{ev['gpu'].get('name')}）: VRAM {vg if vg else '不明'} GiB として控えめに決めます")
     pick, why = choose(pre, s["preset"] or "quality", want, s["ram_max_gib"], s["vram_reserve_mib"])
     # 11/15: 起動時の tail skip: 設定・引数の tail_skip → preset（7・4 の別名）→ PC のスペックで推奨（R4 か R7）

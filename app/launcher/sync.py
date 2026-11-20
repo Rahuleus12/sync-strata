@@ -48,6 +48,12 @@ def print(*a, **kw):                    # noqa: A001  11/17 I-10: 英語の画�
     _print(*[sync_i18n.t(x) if isinstance(x, str) else x for x in a], **kw)
 
 
+def print_json(obj, **kw):
+    """11/20 0.1.3（GitHub Issue #4）: 機械が読む JSON は翻訳を通さない．英語の画面では上の print が日本語を含む行の頭に
+    [ja only] を付けるので，sync status --json が JSON でなくなり，GUI が状態を読めずに終わっていた"""
+    _print(json.dumps(obj, ensure_ascii=False), **kw)
+
+
 def _port(argv):
     return int(argv[argv.index("--port") + 1]) if "--port" in argv else H.effective()["api_port"]      # 11/18 W12: 既定は設定の番号（前は 8080 固定）
 
@@ -63,7 +69,7 @@ def _get(port, path):
 
 def cmd_status(argv):
     if "--json" in argv:
-        print(json.dumps(status_dict(), ensure_ascii=False))
+        print_json(status_dict())
         return 0
     port = _port(argv) if "--port" in argv else H.effective()["api_port"]
     L.PORT = port
@@ -196,7 +202,7 @@ def cmd_down(argv):
         out["dsh"] = did
         print(("止めました: " + "・".join(did)) if did else "止めた dsh はありません（自分で起こした物が無い）", file=sys.stderr if "--json" in argv else sys.stdout)
     if "--json" in argv:
-        print(json.dumps({"ok": out["engine"] in (None, "stopped"), **out}, ensure_ascii=False))
+        print_json({"ok": out["engine"] in (None, "stopped"), **out})
     return 0 if out["engine"] in (None, "stopped") else 1
 
 
@@ -238,9 +244,8 @@ def cmd_settings(argv):
     if not argv or argv[0] == "get":
         raw = H.settings_raw()
         if "--json" in argv:
-            print(json.dumps({"settings": raw, "schema": {k: {"help": v[0], "default": v[2]} for k, v in H.SCHEMA.items()},
-                              "models": [{"id": m["id"], "name": m.get("name", m["id"])} for m in H.catalog().get("models", [])], "file": os.path.join(H.home(), "settings.json")},
-                             ensure_ascii=False))
+            print_json({"settings": raw, "schema": {k: {"help": v[0], "default": v[2]} for k, v in H.SCHEMA.items()},
+                        "models": [{"id": m["id"], "name": m.get("name", m["id"])} for m in H.catalog().get("models", [])], "file": os.path.join(H.home(), "settings.json")})
         else:
             for k, (help_, _, dflt) in H.SCHEMA.items():
                 print(f"  {k:17s} {str(raw[k]):10s} {help_}")
@@ -252,7 +257,10 @@ def cmd_settings(argv):
         except (KeyError, ValueError) as e:
             print(str(e).strip("'\""), file=sys.stderr)
             return 2
-        print(json.dumps({"ok": True, "name": argv[1], "value": v}, ensure_ascii=False) if "--json" in argv else f"{argv[1]} = {v}（次の起動から効きます）")
+        if "--json" in argv:
+            print_json({"ok": True, "name": argv[1], "value": v})
+        else:
+            print(f"{argv[1]} = {v}（次の起動から効きます）")
         return 0
     print("使い方: sync settings get [--json] ／ sync settings set <名前> <値|auto>")
     return 2
@@ -260,7 +268,10 @@ def cmd_settings(argv):
 
 def cmd_gui_url(argv):
     u = H.gui_url(_settings())
-    print(json.dumps({"url": u}) if "--json" in argv else u)
+    if "--json" in argv:
+        print_json({"url": u})
+    else:
+        print(u)
     return 0
 
 
