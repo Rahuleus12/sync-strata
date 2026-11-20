@@ -85,7 +85,7 @@
   {
    "id": "shell",
    "name": "アプリの枠（Tauri 2）",
-   "version": "0.1.0",
+   "version": "0.1.3",
    "optional": true,
    "entry": "Sync-Strata.exe",
    "from": [
@@ -99,7 +99,7 @@
    "id": "shell",
    "os": "linux",
    "name": "アプリの枠（Tauri 2．Linux）",
-   "version": "0.1.0",
+   "version": "0.1.3",
    "optional": true,
    "entry": "sync-strata",
    "exec": [
@@ -550,7 +550,7 @@
   {
    "id": "licenses",
    "name": "同梱の部品のライセンスの束",
-   "version": "0.1.0",
+   "version": "0.1.3",
    "optional": true,
    "from": [
     {

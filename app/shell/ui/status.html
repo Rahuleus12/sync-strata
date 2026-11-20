@@ -1,18 +1,19 @@
 <!doctype html>
-<html lang="ja">
+<html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sync-Strata の状態</title>
+<title data-i18n="win.status"></title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main class="dialog">
-  <h1>Sync-Strata の状態</h1>
-  <dl id="kv" class="kv"><dt>状態</dt><dd class="muted">読んでいます…</dd></dl>
+  <h1 data-i18n="win.status"></h1>
+  <dl id="kv" class="kv"><dt data-i18n="status.state"></dt><dd class="muted" data-i18n="status.loading"></dd></dl>
   <div id="error" class="error hidden"></div>
-  <div class="row"><button id="reload" class="btn ghost">読み直す</button></div>
+  <div class="row"><button id="reload" class="btn ghost" data-i18n="status.reload"></button></div>
 </main>
+<script src="i18n.js"></script>
 <script src="status.js"></script>
 </body>
 </html>

@@ -7,6 +7,8 @@
   （SYNC_HOME に fail-up・fail-down の空ファイルを置いても同じ）
   FAKE_SYNC_UP_SECONDS=n  up にかける秒（既定 4）
   FAKE_SYNC_GUI_URL=…     gui-url の答え（既定 http://127.0.0.1:3181/m/）
+0.1.3（11/20 エンジン 2）: settings get --json は SYNC_HOME の settings.json の ui_lang（無ければ auto）を返す．
+SYNC_LANG=en のときは up の行と失敗の文を英語で出す（本物の起動の道具と同じ）．呼ばれたときの SYNC_LANG も記録に残す．
 """
 import json, os, sys, time
 
@@ -16,9 +18,12 @@ STATE = os.path.join(HOME, "fake-sync-state.json")
 LOG = os.path.join(HOME, "fake-sync-calls.log")
 
 
+EN = (os.environ.get("SYNC_LANG") or "").strip().lower().startswith("en")
+
+
 def log(argv, code):
     with open(LOG, "a", encoding="utf-8") as f:
-        f.write(f"{time.strftime('%H:%M:%S')} {' '.join(argv)} -> {code}\n")
+        f.write(f"{time.strftime('%H:%M:%S')} {' '.join(argv)} -> {code} SYNC_LANG={os.environ.get('SYNC_LANG', '-')}\n")
 
 
 def load():
@@ -50,15 +55,18 @@ def main(argv):
         return 0
     if cmd == "up":
         if os.environ.get("FAKE_SYNC_FAIL_UP") == "1" or os.path.exists(os.path.join(HOME, "fail-up")):
-            print("PC を調べています…", flush=True)
+            print("Checking the PC…" if EN else "PC を調べています…", flush=True)
             time.sleep(1)
-            print("エンジンを起こしています…", flush=True)
+            print("Starting the engine…" if EN else "エンジンを起こしています…", flush=True)
             time.sleep(1)
-            print("偽の失敗: エンジンが 8180 で応えませんでした", file=sys.stderr, flush=True)
+            print("fake failure: the engine did not answer on 8180" if EN else "偽の失敗: エンジンが 8180 で応えませんでした", file=sys.stderr, flush=True)
             return 3
         n = float(os.environ.get("FAKE_SYNC_UP_SECONDS", "4"))
-        for line in ["PC を調べています…", "RAM 31.6 GiB，VRAM 12 GiB．Sync-S（R7）で起こします", "エンジンを起こしています…",
-                     "エンジンが応えました（8180）", "dsh と中継を起こしています…", "dsh が応えました（3180・3181）"]:
+        lines = (["Checking the PC…", "RAM 31.6 GiB, VRAM 12 GiB. Starting Sync-S (R7)", "Starting the engine…",
+                  "The engine answered (8180)", "Starting dsh and the relay…", "dsh answered (3180, 3181)"] if EN else
+                 ["PC を調べています…", "RAM 31.6 GiB，VRAM 12 GiB．Sync-S（R7）で起こします", "エンジンを起こしています…",
+                  "エンジンが応えました（8180）", "dsh と中継を起こしています…", "dsh が応えました（3180・3181）"])
+        for line in lines:
             print(line, flush=True)
             time.sleep(n / 6)
         s["engine"] = True
@@ -68,7 +76,7 @@ def main(argv):
     if cmd == "down":
         if os.environ.get("FAKE_SYNC_FAIL_DOWN") == "1" or os.path.exists(os.path.join(HOME, "fail-down")):
             time.sleep(1)
-            print("偽の失敗: dsh が止まりませんでした", file=sys.stderr)
+            print("fake failure: dsh did not stop" if EN else "偽の失敗: dsh が止まりませんでした", file=sys.stderr)
             return 4
         time.sleep(1.5)
         if "--dsh" in argv:
@@ -78,6 +86,14 @@ def main(argv):
         else:
             s = {"engine": False, "dsh": False}
         save(s)
+        return 0
+    if cmd == "settings" and "--json" in argv:
+        try:
+            with open(os.path.join(HOME, "settings.json"), encoding="utf-8-sig") as f:
+                ui = json.load(f).get("ui_lang", "auto")
+        except Exception:
+            ui = "auto"
+        print(json.dumps({"settings": {"ui_lang": ui, "gui_gpu": "auto"}}))
         return 0
     if cmd == "gui-url":
         print(os.environ.get("FAKE_SYNC_GUI_URL", "http://127.0.0.1:3181/m/"))

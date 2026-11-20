@@ -1,4 +1,4 @@
-// トレイの「状態」．起動の道具の status --json を短く見せる（番地のトークンは扱わない）．
+// トレイの「状態」．起動の道具の status --json を短く見せる（番地のトークンは扱わない）．文は i18n.js の t()．
 (() => {
   const T = window.__TAURI__;
   const kv = document.getElementById("kv");
@@ -8,20 +8,23 @@
     const dd = document.createElement("dd"); dd.textContent = v; if (cls) dd.className = cls;
     kv.append(dt, dd);
   }
-  const updown = (p) => (p && p.up ? ["動いています", "up"] : ["止まっています", "down"]);
+  const updown = (p) => (p && p.up ? [t("status.up"), "up"] : [t("status.down"), "down"]);
+  // 動いているときの補い（括弧の中を区切りで並べる）: 例「動いています（sync-s、R7、ポート 8180）」
+  const detail = (state, parts) => state + t("status.paren", parts.filter((x) => x).join(t("status.sep")));
+  const port = (p) => t("status.port", p ?? "?");
   window.refresh = async () => {
     error.classList.add("hidden");
     try {
       const s = await T.core.invoke("status_summary");
       kv.replaceChildren();
       const e = s.engine || {}, d = s.dsh || {}, r = s.relay || {};
-      let [t, c] = updown(e);
-      row("エンジン", e.up ? `${t}（${e.model || "?"}${e.r ? "，R" + e.r : ""}，ポート ${e.port ?? "?"}）` : t, c);
-      [t, c] = updown(d); row("dsh", d.up ? `${t}（ポート ${d.port ?? "?"}）` : t, c);
-      [t, c] = updown(r); row("中継", r.up ? `${t}（ポート ${r.port ?? "?"}）` : t, c);
+      let [st, c] = updown(e);
+      row(t("status.engine"), e.up ? detail(st, [e.model || "?", e.r ? "R" + e.r : "", port(e.port)]) : st, c);
+      [st, c] = updown(d); row("dsh", d.up ? detail(st, [port(d.port)]) : st, c);
+      [st, c] = updown(r); row(t("status.relay"), r.up ? detail(st, [port(r.port)]) : st, c);
       const inst = (s.models && s.models.installed) || [];
-      row("モデル", inst.length ? inst.join("，") : "まだありません");
-      if (s.shell) row("画面の描画", { auto: "自動", on: "GPU", off: "CPU（--disable-gpu）" }[s.shell.gpu] + `（${s.shell.gpu_from}）`);
+      row(t("status.models"), inst.length ? inst.join(t("status.sep")) : t("status.no_models"));
+      if (s.shell) row(t("status.render"), t("status.gpu." + s.shell.gpu) + t("status.paren", t("status.from." + s.shell.gpu_from)));
     } catch (e) {
       error.textContent = String(e);
       error.classList.remove("hidden");

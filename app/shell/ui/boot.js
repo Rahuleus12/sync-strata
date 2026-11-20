@@ -1,4 +1,5 @@
 // 「起動中」の画面．枠（Rust）の start を呼び，進み具合を 1 行ずつ出す．準備ができたら枠が会話の画面へ移す．
+// 文は i18n.js の t()（進み具合の行は枠が選んだ言語で送ってくる）．
 (async () => {
   const T = window.__TAURI__;
   const steps = document.getElementById("steps");
@@ -19,22 +20,20 @@
     error.classList.add("hidden");
     actions.classList.add("hidden");
     pill.className = "pill";
-    pillText.textContent = "起動中";
+    pillText.textContent = t("boot.starting");
     T.core.invoke("start");
   }
 
-  await T.event.listen("progress", (e) => {
-    add(String(e.payload));
-    if (e.payload === "準備ができました") { pill.className = "pill ok"; pillText.textContent = "準備ができました"; }
-  });
+  await T.event.listen("progress", (e) => add(String(e.payload)));
+  await T.event.listen("ready", () => { pill.className = "pill ok"; pillText.textContent = t("boot.ready"); });
   await T.event.listen("failed", (e) => {
     pill.className = "pill bad";
-    pillText.textContent = "起動できませんでした";
+    pillText.textContent = t("boot.failed");
     error.textContent = String(e.payload);
     error.classList.remove("hidden");
     actions.classList.remove("hidden");
   });
-  document.getElementById("retry").addEventListener("click", () => { add("もう一度試します"); begin(); });
+  document.getElementById("retry").addEventListener("click", () => { add(t("boot.retrying")); begin(); });
   begin();
 })();
 

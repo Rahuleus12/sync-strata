@@ -34,6 +34,7 @@ Sync-Strata のコードは [MIT](LICENSE) です。配布の zip とモデル�
 | [RustXNG](https://github.com/sahenjp/RustXNG) v0.27.0 (the web search engine) | AGPL-3.0-or-later | **Not bundled**: downloaded from upstream's GitHub release on the first web search (checked against the published SHA-256 and a pinned one), and run as a separate program | — |
 | Microsoft Edge WebView2 Runtime | Microsoft software license | Not bundled: the app uses the runtime already on Windows | — |
 | [Zen Kaku Gothic New](https://github.com/googlefonts/zen-kakugothic) Bold (chat page) | SIL OFL 1.1 | Allowed with the software; not sold by itself | `OFL-ZenKakuGothicNew.txt` (already there) |
+| Sync-Strata SC: a subset of [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc), renamed (app window, Chinese) | SIL OFL 1.1 | Allowed with the software; not sold by itself | `fonts/OFL-NotoSansSC.txt`, and the app's `THIRD-PARTY-NOTICES.txt` |
 
 ## Models / モデル（Hugging Face）
 
@@ -45,5 +46,6 @@ Sync-Strata のコードは [MIT](LICENSE) です。配布の zip とモデル�
 | Shared part `tokenizer` | Qwen3.8-Flash-Next | Qwen Community License 1.0 |
 | Vision projector `mmproj` (optional; not redistributed, downloaded from the original repository) | [ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF](https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF) | The card says it inherits the base model's license (Qwen Community License 1.0); the repository metadata says Apache-2.0 |
 | Expert profile (`expert-profile-upstream.bin`, in the engine) | Strata's `data/expert-profile.bin` (the same bytes) | MIT (Strata) |
+| Control vector for "Fewer refusals" (`Qwen3.8-Flash-Next-experimental-speed-projection.gguf`, in the engine's `data`; used only when the setting is on) | Strata's `terminal/data/experimental-speed-projection/` (the same bytes), made from Qwen3.8-Flash-Next activations | Qwen Community License 1.0 (as stated by Strata) |
 
 The Qwen Community License 1.0 allows use, copying, modification and redistribution, including commercial use, if the copyright and permission notice is kept with every copy. Two conditions: a commercial product with more than 100 million monthly active users or US$20 million monthly revenue must show the model name prominently, and a Model-as-a-Service or AI work assistant (coding or office) business needs a separate license from Qwen before any commercial use.

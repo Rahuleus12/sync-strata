@@ -11,8 +11,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+mod i18n;
 mod prio;
 
+use i18n::{t, tf, Lang};
 use serde_json::Value;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -38,7 +40,7 @@ struct Cfg {
     env: Vec<(String, String)>,
     /// auto｜on｜off（WebView2 に GPU を使わせるか）．
     gpu: String,
-    /// どこから gpu を決めたか（記録用）．
+    /// どこから gpu を決めたか（arg｜env｜settings｜default．状態の窓が文に替える）．
     gpu_from: String,
     /// 画面の子プロセスの優先度（low｜idle｜normal）．
     prio: prio::Prio,
@@ -196,13 +198,13 @@ fn load_cfg(args: &[String]) -> Cfg {
         .and_then(|s| serde_json::from_str::<Value>(s.trim_start_matches('\u{feff}')).ok())
         .and_then(|v| v.get("gui_gpu").and_then(Value::as_str).map(str::to_string));
     let (gpu_raw, gpu_from) = if let Some(v) = cli_value(args, "gpu") {
-        (v, "引数 --gpu")
+        (v, "arg")
     } else if let Some(v) = env_nonempty("SYNC_GUI_GPU") {
-        (v, "環境変数 SYNC_GUI_GPU")
+        (v, "env")
     } else if let Some(v) = settings_gpu {
-        (v, "settings.json の gui_gpu")
+        (v, "settings")
     } else {
-        ("auto".to_string(), "既定")
+        ("auto".to_string(), "default")
     };
     let gpu = match gpu_raw.trim().to_ascii_lowercase().as_str() {
         "on" | "gpu" => "on",
@@ -270,6 +272,10 @@ fn launcher_cmd(cfg: &Cfg, args: &[&str]) -> Command {
     for (k, v) in &cfg.env {
         c.env(k, v);
     }
+    // 英語・中国語の画面では起動の道具の文を英語に（起動の道具に中国語は無い）．日本語のときは渡さない．
+    if i18n::cur() != Lang::Ja {
+        c.env("SYNC_LANG", "en");
+    }
     if let Some(dir) = cfg.launcher.parent() {
         c.current_dir(dir);
     }
@@ -313,7 +319,7 @@ fn strip_appimage_env(c: &mut Command) {
 fn run_launcher(cfg: &Cfg, args: &[&str], secret: bool) -> Result<Out, String> {
     let started = Instant::now();
     let out = launcher_cmd(cfg, args).stdin(Stdio::null()).output().map_err(|e| {
-        let msg = format!("起動の道具を呼べません（{}）: {e}", cfg.python);
+        let msg = tf("err.call", &[&cfg.python, &e.to_string()]);
         cfg.log(&format!("call {} → 失敗 {msg}", args.join(" ")));
         msg
     })?;
@@ -336,7 +342,7 @@ fn last_line(s: &str) -> String {
 fn redact(line: &str) -> String {
     let low = line.to_ascii_lowercase();
     if low.contains("token") || low.contains("?t=") || low.contains("&t=") || low.contains("api_key") || low.contains("bearer") {
-        "（鍵を含む行なので表示しません）".to_string()
+        t("prog.redacted")
     } else {
         line.to_string()
     }
@@ -346,8 +352,39 @@ fn status_json(cfg: &Cfg) -> Result<Value, String> {
     let o = run_launcher(cfg, &["status", "--json"], false)?;
     serde_json::from_str::<Value>(o.stdout.trim()).map_err(|_| {
         let why = if o.stderr.trim().is_empty() { last_line(&o.stdout) } else { last_line(&o.stderr) };
-        format!("状態を読めません（終了コード {}）: {why}", o.code)
+        tf("err.status", &[&o.code.to_string(), &why])
     })
+}
+
+/// 画面の言語を決める: 環境変数 SYNC_LANG → 起動の道具の設定 ui_lang（settings get --json．auto・無い・知らない値は次へ）
+/// → OS の言語 → 英語．返すのは（言語，どこで決めたか）．
+fn resolve_lang(cfg: &Cfg) -> (Lang, &'static str) {
+    if let Some(l) = env_nonempty("SYNC_LANG").and_then(|v| Lang::parse(&v)) {
+        return (l, "SYNC_LANG");
+    }
+    if cfg.launcher.exists() {
+        if let Ok(o) = run_launcher(cfg, &["settings", "get", "--json"], false) {
+            let ui = serde_json::from_str::<Value>(o.stdout.trim())
+                .ok()
+                .and_then(|v| v.pointer("/settings/ui_lang").and_then(Value::as_str).map(str::to_string));
+            if let Some(l) = ui.as_deref().and_then(Lang::parse) {
+                return (l, "ui_lang");
+            }
+        }
+    }
+    match i18n::os_lang() {
+        Some(l) => (l, "OS"),
+        None => (Lang::En, "fallback"),
+    }
+}
+
+/// 言語を決め直して今の言語にする（起動時と，閉じる小窓・状態の窓を作るとき）．
+fn refresh_lang(cfg: &Cfg) {
+    let (l, from) = resolve_lang(cfg);
+    if l != i18n::cur() {
+        cfg.log(&format!("画面の言語 {}（{from}）", l.code()));
+    }
+    i18n::set(l);
 }
 
 fn is_up(v: &Value, part: &str) -> bool {
@@ -362,12 +399,17 @@ static WATCHING: AtomicBool = AtomicBool::new(false);
 /// トレイを出せたか（Linux で appindicator が無いと出せない）．出せないときは，窓を閉じたら枠も終わる．
 static TRAY_OK: AtomicBool = AtomicBool::new(false);
 static STOPPING: Mutex<()> = Mutex::new(());
+/// 閉じる小窓・状態の窓を作っている間 true（言語を読む間に二重に作らない）．
+static CLOSE_OPENING: AtomicBool = AtomicBool::new(false);
+static STATUS_OPENING: AtomicBool = AtomicBool::new(false);
 
 fn build_window<'a>(app: &'a AppHandle, label: &str, page: &str, title: &str, w: f64, h: f64) -> tauri::Result<WebviewWindowBuilder<'a, tauri::Wry, AppHandle>> {
     let cfg = app.state::<Cfg>();
     let b = WebviewWindowBuilder::new(app, label, WebviewUrl::App(page.into()))
         .title(title)
         .inner_size(w, h)
+        // 画面の文（今の言語の分）を先に入れておく（ui/i18n.js が読む）．
+        .initialization_script(&i18n::page_script())
         .additional_browser_args(&cfg.browser_args());
     #[cfg(windows)]
     let b = b.disable_drag_drop_handler();
@@ -392,24 +434,34 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+/// 閉じる小窓．作る前に言語を読み直す（起動の道具を呼ぶので，窓の糸を止めないよう別の糸で）．
 fn show_close_dialog(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("close") {
         let _ = w.show();
         let _ = w.set_focus();
         return;
     }
-    let made = build_window(app, "close", "close.html", "Sync-Strata を閉じる", 470.0, 480.0).and_then(|b| {
-        let b = b.resizable(false).minimizable(false).maximizable(false).always_on_top(true).center();
-        match app.get_webview_window("main") {
-            Some(main) => b.parent(&main)?.build(),
-            None => b.build(),
-        }
-    });
-    if let Err(e) = made {
-        app.state::<Cfg>().log(&format!("閉じる画面を作れません: {e}"));
+    if CLOSE_OPENING.swap(true, Ordering::SeqCst) {
+        return;
     }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        refresh_lang(&app.state::<Cfg>());
+        let made = build_window(&app, "close", "close.html", &t("win.close"), 470.0, 480.0).and_then(|b| {
+            let b = b.resizable(false).minimizable(false).maximizable(false).always_on_top(true).center();
+            match app.get_webview_window("main") {
+                Some(main) => b.parent(&main)?.build(),
+                None => b.build(),
+            }
+        });
+        if let Err(e) = made {
+            app.state::<Cfg>().log(&format!("閉じる画面を作れません: {e}"));
+        }
+        CLOSE_OPENING.store(false, Ordering::SeqCst);
+    });
 }
 
+/// 状態の窓．作る前に言語を読み直す（別の糸で）．
 fn show_status(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("status") {
         let _ = w.show();
@@ -417,11 +469,19 @@ fn show_status(app: &AppHandle) {
         let _ = w.eval("window.refresh && window.refresh()");
         return;
     }
-    if let Err(e) = build_window(app, "status", "status.html", "Sync-Strata の状態", 440.0, 400.0)
-        .and_then(|b| b.resizable(false).maximizable(false).center().build())
-    {
-        app.state::<Cfg>().log(&format!("状態の画面を作れません: {e}"));
+    if STATUS_OPENING.swap(true, Ordering::SeqCst) {
+        return;
     }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        refresh_lang(&app.state::<Cfg>());
+        if let Err(e) = build_window(&app, "status", "status.html", &t("win.status"), 440.0, 400.0)
+            .and_then(|b| b.resizable(false).maximizable(false).center().build())
+        {
+            app.state::<Cfg>().log(&format!("状態の画面を作れません: {e}"));
+        }
+        STATUS_OPENING.store(false, Ordering::SeqCst);
+    });
 }
 
 fn close_gui_windows(app: &AppHandle) {
@@ -499,22 +559,22 @@ fn wait_reachable(url: &tauri::Url, limit: Duration) -> bool {
 fn start_flow(app: &AppHandle) -> Result<tauri::Url, String> {
     let cfg = app.state::<Cfg>();
     cfg.log(&format!("起動の流れを始める（描画 {}，{} から）", cfg.gpu, cfg.gpu_from));
-    progress(app, "起動の道具に状態を聞いています…");
+    progress(app, &t("prog.asking"));
     if !cfg.launcher.exists() {
-        return Err(format!("起動の道具が見つかりません: {}", cfg.launcher.display()));
+        return Err(tf("err.no_launcher", &[&cfg.launcher.display().to_string()]));
     }
     let st = status_json(&cfg)?;
     if is_up(&st, "engine") && is_up(&st, "dsh") {
         let model = st.get("engine").and_then(|e| e.get("model")).and_then(Value::as_str).unwrap_or("?");
-        progress(app, &format!("エンジン（{model}）と dsh はもう動いています"));
+        progress(app, &tf("prog.already", &[model]));
     } else {
-        progress(app, "エンジンと dsh を起こしています（数分かかることがあります）");
+        progress(app, &t("prog.starting"));
         let mut child = launcher_cmd(&cfg, &["up", "--gui"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| format!("起動の道具を呼べません（{}）: {e}", cfg.python))?;
+            .map_err(|e| tf("err.call", &[&cfg.python, &e.to_string()]))?;
         let t0 = Instant::now();
         // 標準エラーは別の糸で全部読む（詰まらせないため）．失敗の理由に使う．
         let mut err_pipe = child.stderr.take();
@@ -537,29 +597,29 @@ fn start_flow(app: &AppHandle) -> Result<tauri::Url, String> {
                 last = l;
             }
         }
-        let status = child.wait().map_err(|e| format!("起動の道具の終わりを待てません: {e}"))?;
+        let status = child.wait().map_err(|e| tf("err.wait", &[&e.to_string()]))?;
         let stderr = err_reader.join().unwrap_or_default();
         let code = status.code().unwrap_or(-1);
         cfg.log(&format!("call up --gui → {code}（{} ms）", t0.elapsed().as_millis()));
         if code != 0 {
             let why = last_line(&stderr);
             let why = if why.is_empty() { last } else { why };
-            return Err(format!("起こせませんでした（終了コード {code}）: {why}"));
+            return Err(tf("err.up", &[&code.to_string(), &why]));
         }
     }
-    progress(app, "会話の画面の番地を聞いています…");
+    progress(app, &t("prog.url"));
     let o = run_launcher(&cfg, &["gui-url"], true)?;
     if o.code != 0 {
-        return Err(format!("会話の画面の番地を得られません（終了コード {}）: {}", o.code, last_line(&o.stderr)));
+        return Err(tf("err.url", &[&o.code.to_string(), &last_line(&o.stderr)]));
     }
     let raw = o.stdout.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
-    let url: tauri::Url = raw.parse().map_err(|_| "会話の画面の番地が URL の形ではありません".to_string())?;
+    let url: tauri::Url = raw.parse().map_err(|_| t("err.url_form"))?;
     if !matches!(url.scheme(), "http" | "https") {
-        return Err("会話の画面の番地が http(s) ではありません".into());
+        return Err(t("err.url_scheme"));
     }
-    progress(app, "会話の画面につないでいます…");
+    progress(app, &t("prog.connect"));
     if !wait_reachable(&url, Duration::from_secs(60)) {
-        return Err(format!("会話の画面（{}:{}）に 60 秒つながりませんでした", url.host_str().unwrap_or("?"), url.port_or_known_default().unwrap_or(0)));
+        return Err(tf("err.reach", &[url.host_str().unwrap_or("?"), &url.port_or_known_default().unwrap_or(0).to_string()]));
     }
     Ok(url)
 }
@@ -574,11 +634,12 @@ fn start(app: AppHandle) {
         STARTING.store(false, Ordering::SeqCst);
         match r {
             Ok(url) => {
-                progress(&app, "準備ができました");
+                progress(&app, &t("boot.ready"));
+                let _ = app.emit_to("main", "ready", ());
                 if let Some(w) = app.get_webview_window("main") {
                     app.state::<Cfg>().log("会話の画面へ移る");
                     if let Err(e) = w.navigate(url) {
-                        let _ = app.emit_to("main", "failed", format!("会話の画面へ移れません: {e}"));
+                        let _ = app.emit_to("main", "failed", tf("err.navigate", &[&e.to_string()]));
                     }
                 }
             }
@@ -617,7 +678,7 @@ async fn close_choice(app: AppHandle, choice: String) -> Result<(), String> {
                 if o.code != 0 {
                     let why = last_line(&o.stderr);
                     let why = if why.is_empty() { last_line(&o.stdout) } else { why };
-                    return Err(format!("止められませんでした（終了コード {}）: {why}", o.code));
+                    return Err(tf("err.stop", &[&o.code.to_string(), &why]));
                 }
                 if choice == "all" {
                     app.exit(0);
@@ -627,7 +688,7 @@ async fn close_choice(app: AppHandle, choice: String) -> Result<(), String> {
                 }
                 Ok(())
             }
-            other => Err(format!("知らない選択です: {other}")),
+            other => Err(tf("err.choice", &[other])),
         }
     })
     .await
@@ -671,9 +732,9 @@ fn stop_all_and_exit(app: &AppHandle) {
 }
 
 fn make_tray(app: &tauri::App) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "開く", true, None::<&str>)?;
-    let status = MenuItem::with_id(app, "status", "状態", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "全て止めて終了", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", t("tray.open"), true, None::<&str>)?;
+    let status = MenuItem::with_id(app, "status", t("tray.status"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", t("tray.quit"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &status, &quit])?;
     let mut b = TrayIconBuilder::with_id("sync-strata")
         .tooltip("Sync-Strata")
@@ -729,6 +790,13 @@ fn main() {
         .manage(cfg)
         .invoke_handler(tauri::generate_handler![start, close_choice, status_summary])
         .setup(|app| {
+            // 画面の言語を先に決める（トレイのメニューと最初の窓の文に使う）．
+            {
+                let cfg = app.state::<Cfg>();
+                let (l, from) = resolve_lang(&cfg);
+                i18n::set(l);
+                cfg.log(&format!("画面の言語 {}（{from}）", l.code()));
+            }
             #[cfg(target_os = "linux")]
             let tray_ok = appindicator_available();
             #[cfg(not(target_os = "linux"))]
