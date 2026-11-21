@@ -6,6 +6,8 @@ Sync-Strata は、Qwen3.8-Flash-Next（125B の MoE）を家庭の PC 1 台で�
 エンジンは [Strata](https://github.com/Niko1221/Strata) のフォークで、モデルは本家の Gyro より速く動くように量子化し直した **Sync-XS・Sync-S・Sync-M** を使います。
 会話の画面（[dsh](https://www.npmjs.com/package/@deepseek-ai/dsh)）とエンジンが同梱されていて、GUI・スマホ・CLI・OpenAI 互換の API から使えます。
 
+エンジンのソースは、本家 Strata の履歴と作者を残したまま [hiruhiru2005/sync-strata-engine](https://github.com/hiruhiru2005/sync-strata-engine) に置いています（ここの `engine/` はそのサブモジュールです。`--recursive` を付けて clone してください）。Strata を作った Niko1221 さんと貢献者の皆さんに感謝します（[CREDITS.md](CREDITS.md)）。
+
 > **試験版です。** Windows と Linux、NVIDIA の RTX 30・40 系に対応しています（ほかの GPU は下の表）。モデルとエンジンの形式は本家 Strata や llama.cpp とは互換がありません。
 
 ## 要求スペック

@@ -1,0 +1,4 @@
+[submodule "engine"]
+	path = engine
+	url = https://github.com/hiruhiru2005/sync-strata-engine.git
+	branch = sync/windows

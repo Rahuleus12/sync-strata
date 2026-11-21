@@ -7,7 +7,7 @@ Sync-Strata のコードは [MIT](LICENSE) です。配布の zip とモデル�
 
 | Part | License | Notice to keep |
 |---|---|---|
-| Engine, server, app (fork of [Strata](https://github.com/Niko1221/Strata)) | MIT | `Copyright (c) 2026 Niko1221 and the Strata contributors` and `Copyright (c) 2026 hiruhiru2005` (`LICENSE`) |
+| Engine, server, app (fork of [Strata](https://github.com/Niko1221/Strata); the source with upstream's history: [sync-strata-engine](https://github.com/hiruhiru2005/sync-strata-engine)) | MIT | `Copyright (c) 2026 Niko1221 and the Strata contributors` and `Copyright (c) 2026 hiruhiru2005` (`LICENSE`) |
 | Gyro trellis types and kernels (agentionai, via Strata): the types, the Hadamard rotation, the CPU and GPU kernels and the pack step from agentionai/Strata `rc2`; `third_party/ggml/ggml-common-tq.h` and the MMQ instances from agentionai/llama.cpp (as stated in upstream Strata's `docs/GYRO.md`). The Gyro format's specification and reference decoder/encoder that agentionai publishes under Apache-2.0 are not included. | MIT | Kept in Strata's history and `LICENSE`; `third_party/ggml/LICENSE` |
 | [llama.cpp / ggml](https://github.com/ggml-org/llama.cpp) (`third_party/ggml`) | MIT | `third_party/ggml/LICENSE` |
 | [Project Maya](https://github.com/mw00/project-maya) (`src/dsv41`, via Strata) | MIT | `third_party/project-maya/LICENSE`, `NOTICE.md` |
