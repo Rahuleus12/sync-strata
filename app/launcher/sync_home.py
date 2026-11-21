@@ -11,11 +11,11 @@
     1. 環境変数 SYNC_DSH_ROOT・SYNC_RELAY_JS・SYNC_PROXY_JS・SYNC_CATALOG・SYNC_NODE・SYNC_DSH_PROFILE（あればいちばん先）．
     2. 入れた先の並び: この道具が <app>\\launcher\\ にあり，隣に engine\\bin\\strata.exe か chat\\server.mjs があるとき，
        <app>\\engine・python・node・dsh・chat・pack\\dsh-profile を使う．モデルの一覧は chat\\models\\models.dist.json（道のりは
-       設定 models_dir からの相対）を SYNC_HOME\\models-state\\catalog.json に絶対の道のりで書き出して使う（中継にも同じ物を渡す）．
+       設定 models_dir からの相対）を SYNC_HOME\\models-state\\catalogs に絶対の道のりで書き出して使う（中継にも同じ物を渡す）．
     3. どちらでもなければ，同じフォルダーの layout.dev.json（作者の PC の作業場の並び．配布物には入らない）．
 - 止めるのは，ここで起こして procs.json に残したプロセスだけ（番号と生まれた時刻の両方が合うとき）．この PC の常駐の dsh（タスク DshAutoStart）には触れない．
 """
-import ctypes, json, os, re, shutil, socket, subprocess, sys, time, urllib.request
+import ctypes, hashlib, json, os, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -195,9 +195,24 @@ def settings_set(name, value):
             d[name] = SCHEMA[name][1](value)
         except ValueError as e:
             raise ValueError(f"{name} は {e}") from None
+    if name == "models_dir":
+        v = d[name]
+        if v != "auto":
+            if (not os.path.isabs(v) or (OS.IS_WIN and not os.path.splitdrive(v)[0])
+                    or any(ord(c) < 32 for c in v)):
+                raise ValueError("Model directory must be an absolute folder path")
+            if os.path.lexists(v) and not os.path.isdir(v):
+                raise ValueError("Model directory is not a folder")
+            d[name] = os.path.normpath(v)
+        if d["sessions_dir"] in (None, "", "auto"):
+            old = sessions_dir_auto(_models_dir())
+            new = sessions_dir_auto(None if v == "auto" else d[name])
+            if os.path.normcase(old) != os.path.normcase(new):
+                d["sessions_dir"] = old
     p = os.path.join(home(), "settings.json")
     tmp = p + ".tmp"
-    json.dump(d, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
     os.replace(tmp, p)
     return d[name]
 
@@ -359,10 +374,20 @@ def resolve_catalog(dist_path, models_dir, out_path, python=None):
     except OSError:
         pass
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path + ".tmp", "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(out_path + ".tmp", out_path)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out_path), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, out_path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
     return out_path
+
+
+def configurable_catalog():
+    dist = LAYOUT["catalog_dist"]
+    return not (os.environ.get("SYNC_CATALOG") or LAYOUT["catalog"]) and bool(dist and os.path.isfile(dist))
 
 
 def catalog_path():
@@ -372,11 +397,14 @@ def catalog_path():
     if LAYOUT["catalog"]:
         return LAYOUT["catalog"]
     dist = LAYOUT["catalog_dist"]
-    out = os.path.join(home(), "models-state", "catalog.json")
+    root = _models_dir()
+    # A running relay and its workers retain their catalog when settings change.
+    key = hashlib.sha256(os.fsencode(os.path.normcase(root))).hexdigest()
+    out = os.path.join(home(), "models-state", "catalogs", key + ".json")
     if dist and os.path.isfile(dist):
         py = LAYOUT["python"] if LAYOUT["kind"] == "installed" and LAYOUT["python"] and os.path.isfile(LAYOUT["python"]) else None
         try:
-            return resolve_catalog(dist, _models_dir(), out, py)
+            return resolve_catalog(dist, root, out, py)
         except (OSError, ValueError):
             pass
     return out
