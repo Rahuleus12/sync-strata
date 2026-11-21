@@ -27,7 +27,8 @@ const Store = (() => {
   let generation = 0;
 
   const emit = (topic, id) => { for (const f of listeners) f(topic, id); };
-  const isTop = (s) => !s.parentSessionId && s.origin !== "subagent";
+  // Forks have a parentSessionId for lineage, but only subagents need a parent address.
+  const isTop = (s) => s.origin !== "subagent";
 
   function stopStreams() {
     for (const stop of stops.splice(0)) stop();

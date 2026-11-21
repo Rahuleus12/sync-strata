@@ -108,7 +108,8 @@ const Api = (() => {
     call,
     mux,
     listSessions: () => call("session/list", { _request: {} }),
-    createSession: (workspaceId) => call("session/create", { request: { workspaceId } }),
+    createSession: (workspaceId, agentPreset) => call("session/create", { request: { workspaceId, agentPreset } }),
+    forkSession: (sessionId, atSeq) => call("session/fork", { request: { sessionId, atSeq } }),
     // parts: 画像 {type:"image", mediaType, data, name} やファイル {type:"file", receiptId}（attach.js）．文字が空でも部品があれば送れる
     prompt: (sessionId, text, mode = "queue", parts = []) =>
       call("session/prompt", {
