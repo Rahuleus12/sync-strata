@@ -162,6 +162,8 @@ const Api = (() => {
       call("workspace/archiveSession", { request: { sessionId, ...(stopActivity ? { stopActivity: true } : {}) } }),
     unarchive: (sessionId) => call("workspace/unarchiveSession", { request: { sessionId } }),
     createWorkspace: (path) => call("workspace/create", { request: { path } }),
+    // dsh deletes only the registration, not its directory or sessions.
+    removeWorkspace: (workspaceId) => call("workspace/delete", { request: { workspaceId } }),
     renameWorkspace: (workspaceId, title) => call("workspace/rename", { request: { workspaceId, title } }),
   };
 })();

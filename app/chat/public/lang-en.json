@@ -561,10 +561,16 @@
  "s0561": "Chat screen",
  "s0562": "Engine",
  "s0563": "Install tools",
- "s0564": "Licenses",
+ "s0564": "Licenses"
+,
  "s0565": "File reads (reclaimable) {0} GiB",
  "s0566": "Strata settings",
  "s0567": "Fewer refusals (uncensored, experimental)",
  "s0568": "Reduce",
- "s0569": "With Reduce, the model declines less often. Its safety behavior is weakened too, so you are responsible for what you have it write."
+ "s0569": "With Reduce, the model declines less often. Its safety behavior is weakened too, so you are responsible for what you have it write.",
+ "s0570": "Remove workspace {0}?",
+ "s0571": "This removes {0} from the workspace list. The folder, project files, and session logs are kept. Existing sessions remain available outside this workspace, and running work is not stopped.",
+ "s0572": "Remove workspace",
+ "s0573": "Workspace removed",
+ "s0574": "Remove workspace {0}"
 }

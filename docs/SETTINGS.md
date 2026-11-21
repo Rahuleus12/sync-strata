@@ -20,6 +20,12 @@ All settings live in one file (`settings.json`), and the app (PC and phone) and 
 | `ram_squeeze` | `auto`, `off` | Memory squeeze. At start, and once each time you switch models, it pushes the RAM used by other apps out of memory and gives the freed RAM to the model (no app is closed). `auto` (default) is on; `off` turns it off. The amount is shown in the start reason |
 | `expert_learning` | `on`, `off` | Learns the order of experts from the chats on this PC and saves it. The default is `off`. In a measurement with Sync-S, R4, dsh chats, the learned order was not faster than upstream's order (93.7 vs 96.1 tok/s), so it is not on by default. With `on`, the learned order is saved in `SYNC_HOME\engine-data` |
 
+## Desktop startup
+
+In **Strata settings**, uncheck **Start the model automatically when opening the desktop app** to open chat without loading a model. You can also run `sync settings set desktop_auto_start off`. The default is `on` (`auto` resets to that default).
+
+This applies the next time the native desktop app opens its chat window. It does not stop an already-running model or change explicit starts from the model picker or `sync up`.
+
 ## Checking the context settings
 
 With `auto`, they follow your VRAM like this (if only one is `auto`, it matches the one you set):

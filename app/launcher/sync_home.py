@@ -160,6 +160,7 @@ SCHEMA = {
     "update_feed":      ("更新の置き場（フォルダーか URL．auto: 配布物の一覧の値）", str, None),
     # 11/16: 会話の控え（K/V の保存）．大きいので，既定はモデルと同じドライブ．合計に上限（超えたら古い物から消す）
     "sessions_dir":     ("会話の控えの置き場（auto: モデルの置き場と同じドライブの SyncStrata-sessions．モデルが既定の置き場なら SYNC_HOME\\engine-sessions）", str, None),
+    "desktop_auto_start": ("デスクトップアプリを開くときにエンジンを自動で起こす on（既定）か off", _choice("on", "off"), "on"),
     # 11/17: 会話の窓（Tauri の枠）の描き方．枠が settings.json を直接読む（引数 --gpu・環境変数 SYNC_GUI_GPU が先）．次に窓を開くときから効く
     "gui_gpu":          ("会話の窓を GPU で描くか．auto（既定．Linux は白い窓を避ける設定だけ）・on・off（CPU で描く．decode と GPU を取り合わない．CPU は増える）", _choice("auto", "on", "off"), "auto"),
     "sessions_max_gib": ("会話の控えの合計の上限 GiB（auto: 20 と，そのドライブの空き＋控えの 1 割の小さい方．最低 2）", _num(1, 4096), None),
