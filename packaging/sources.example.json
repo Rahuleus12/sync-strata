@@ -284,6 +284,25 @@
    "os": "windows"
   },
   {
+   "id": "engine-inkling2",
+   "os": "linux",
+   "name": "エンジン（Inkling 2 Mini．DSpark・文脈 256K・RAM の専門家は CPU．NVIDIA．CUDA 13．Linux）",
+   "version": "0.2.7-linux-ink2",
+   "main_zip": false,
+   "optional": true,
+   "exec": [
+    "bin/strata",
+    "bin/strata-ink2",
+    "start-inkling.sh"
+   ],
+   "from": [
+    {
+     "src": "<your-path>/sync-strata/build/kit-linux-inkling2"
+    }
+   ],
+   "note": "tools/build_inkling_kit.sh --portable で作る（RTX 20〜50 と AVX2 の基準）．中身は bin（strata・strata-ink2）と自分の serve（Inkling の会話の形を知る物）．入れた先は app/engine-inkling2（variant は付けない: 付けると GPU に合う Qwen のエンジンの 1 つだけが入り，これは入らない）．起動の道具（sync_home.LAYOUT の inkling_kit）が見つけ，一覧の engine: inkling2 のモデルの起動に使う．Qwen のエンジン・serve には触らない．docs/INKLING2.md"
+  },
+  {
    "id": "engine-cuda12",
    "os": "linux",
    "name": "エンジン（NVIDIA GTX 10・Tesla P100・V100・Titan V．CUDA 12．試験的．Linux）",

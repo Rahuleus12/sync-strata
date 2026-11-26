@@ -197,8 +197,9 @@ const Setup = (() => {
       const queued = (L.queue || []).length > 0;
       // what is still to fetch for this model (its own files, and the shared parts that are not on the list yet)
       const need = m ? (m.local.complete ? 0 : m.local.total_bytes - m.local.have_bytes) + (m.shared_bytes || 0) : 0;
-      const lacks = !!m && (!m.local.complete || (m.shared_pending && m.shared_pending.length > 0));
-      if (!L.first_run && !lacks && !queued) {
+      const ready = (L.models || []).filter(engineModelReady);
+      const start = ready.find((x) => x.recommended) || ready[0];
+      if (start && !queued) {
         // ready: offer the start
         title.textContent = tr("Ready");
         intro.textContent = tr("Strata can start now.");
@@ -208,9 +209,9 @@ const Setup = (() => {
         all.disabled = !!(Store.S.strata && Store.S.strata.online);
         if (typeof EnvCheck !== "undefined") EnvCheck.guide(list, all);   // 11/15 係 C env: not supported -> no start
         all.onclick = () => {
-          const m2 = (L.models || []).find((x) => x.recommended && x.local.complete) || (L.models || []).find((x) => x.local.complete);
-          const r = (Spec.v && Spec.v.recommended_r) || (m2 && m2.default_r) || 7;   // 11/15: この PC に推奨の R（R4 か R7）
-          if (m2) startStrata(m2.preset, { model: m2.id, r, name: `${m2.name} ${rLabel(r)}` }).catch((e) => toast(e.message));
+          const r = start.engine ? null : Spec.v?.recommended_r ?? start.default_r ?? 7;
+          const name = r == null ? start.name : `${start.name} ${rLabel(r)}`;
+          startStrata(start.preset, { model: start.id, r, name }).catch((e) => toast(e.message));
           sh.close();
         };
         return;
@@ -223,9 +224,11 @@ const Setup = (() => {
       free.textContent = fb != null ? tr("Free space: {0} (to download: {1})", [fmtGiB(fb), fmtGiB(need)]) : tr("To download: {0}", [fmtGiB(need)]);
       free.classList.toggle("fit-warn", fb != null && fb < need + 2 * GIB);
       const resume = !!m && m.local.have_bytes + m.local.partial_bytes > 0 && !m.local.complete;
-      all.textContent = queued ? tr("Downloading…") : resume ? tr("Resume the download") : tr("Download ({0})", [fmtGiB(need)]);
-      all.disabled = queued || !m;
-      all.onclick = () => act(() => modelsPost("download", m.id));
+      const canDownload = !!m && (!m.local.complete || m.shared_pending?.length) && !dlActive(m);
+      all.textContent = queued || dlActive(m) ? tr("Downloading…")
+        : !canDownload ? tr("Manage local models") : resume ? tr("Resume the download") : tr("Download ({0})", [fmtGiB(need)]);
+      all.disabled = queued || dlActive(m);
+      all.onclick = canDownload ? () => act(() => modelsPost("download", m.id)) : () => { sh.close(true); openStrataSheet(); };
       if (typeof EnvCheck !== "undefined") EnvCheck.guide(list, all);   // 11/15 係 C env: not supported -> no download
     }
     async function poll() {

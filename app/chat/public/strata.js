@@ -159,16 +159,6 @@ const STRATA_PRESETS = DSH_CONFIG.strataPresets;
 // 最後に読んだ /m/models の答え（Strata の欄を開いている間だけ読み直す）．legacy: 中継が一覧を出さない
 const Models = { list: null, legacy: false, error: null };
 
-// 動いている Strata の設定の名前（/metrics のモデル名から）．11/15: 欄で選んで起動したなら tail skip も（例「Sync-S · R4」）
-function strataPresetName(model) {
-  let name = model || "";
-  // 11/16 夜 本人: Sync-XS だけ「qwen3.8-flash-next-sync-xs」と長い小文字で出ていた（前は sync-m・sync-s だけを見ていた）．
-  // 名乗りの最後の「sync-<名前>」から，ほかの物と同じ「Sync-XS」の形に（config.js の strataPresets に名前があればそれ）
-  const pm = /sync-([a-z]+)$/i.exec(model || "");
-  if (pm) name = STRATA_PRESETS["sync" + pm[1].toLowerCase()] || `Sync-${pm[1].toUpperCase()}`;
-  const run = Models.list && Models.list.running;
-  return run && run.r ? `${name} · R${run.r}` : name;
-}
 
 const GIB = 1024 ** 3;
 const fmtGiB = (b) => `${I18n.num(Math.round((b / GIB) * 10) / 10)} GiB`;
@@ -183,6 +173,7 @@ const modelDesc = (m) => (m.description && (m.description[I18n.lang] || m.descri
 const modelOf = (id) => ((Models.list && Models.list.models) || []).find((m) => m.id === id) || null;
 const DL_ACTIVE = ["starting", "downloading", "verifying"];
 const dlActive = (m) => !!(m && m.download && DL_ACTIVE.includes(m.download.state));
+const engineModelReady = (m) => !!m && !m.pending && m.local.complete && !dlActive(m) && !queueOf(m.id) && !m.shared_missing?.length;
 
 // 11/17 W1 (D, E): the waiting list (L.queue = [{id, name, kind: "model"|"shared", active}], the one running first). A download
 // press puts the model on it together with the shared parts it lacks; the relay fetches them one after another.
@@ -251,7 +242,7 @@ async function modelsPost(action, id) {
 async function loadModels() {
   try {
     const r = await fetch("/m/models", { cache: "no-store" });
-    if (r.status === 404) { Models.legacy = true; Models.list = null; return; }
+    if (r.status === 404) { Models.legacy = true; Models.list = null; Models.error = null; return; }
     const b = await r.json();
     if (r.ok && b.ok) { Models.list = b; Models.legacy = false; Models.error = null; } else Models.error = b.error || tr("Failed (HTTP {0})", [r.status]);
   } catch {
@@ -294,36 +285,49 @@ async function startStrata(preset = "syncm", opts = null) {
   if (opts && opts.model) {
     if (opts.restart && !(await confirmStop(tr("Strata is busy. Switch anyway?"), tr("Yes, switch")))) return;
     // preset= too: a relay older than 11/15 reads only that (and starts the same pack with its own tail skip)
-    await strataControl("start", `?model=${encodeURIComponent(opts.model)}&r=${opts.r}${opts.restart ? "&restart=1" : ""}&preset=${p}&mode=vision`);
+    const q = new URLSearchParams({ model: opts.model });
+    if (opts.r != null && !inklingId(opts.model)) q.set("r", opts.r);
+    if (opts.restart) q.set("restart", "1");
+    if (!inklingId(opts.model)) { q.set("preset", p); q.set("mode", "vision"); }
+    await strataControl("start", `?${q}`);
     toast(opts.restart ? tr("Switching Strata to {0} (1–2 min)", [opts.name]) : tr("Starting Strata with {0} (1–2 min)", [opts.name]));
+    await Store.refreshStrata();
     return;
   }
   // mode=vision: 11/9 より前の中継（preset を読まない）でも，古い画像なしの設定ではなく Sync-M で起動するように
   await strataControl("start", `?preset=${p}&mode=vision`);
   toast(tr("Starting Strata with {0} (1–2 min)", [STRATA_PRESETS[p]]));
+  await Store.refreshStrata();
 }
 
 async function stopStrata() {
   if (!(await confirmStop(tr("Stop Strata while it is working?"), tr("Yes, stop")))) return;
   await strataControl("stop");
   toast(tr("Stopping Strata"));
+  await Store.refreshStrata();
 }
 
 // What runs now, from Strata's own state (polled every 1-3 s, fresher than the last list): the model whose name matches,
 // and the tail skip it was started with (the relay's record of the last start, when that start was this model).
 function liveRunning() {
   const L = Models.list;
-  const st = Store.S.strata;
-  if (!L || !L.models || !st || !st.online || !st.model) return null;
-  const m = L.models.find((x) => { try { return new RegExp(x.match || x.id, "i").test(st.model); } catch { return false; } });
-  return m ? { model: m.id, r: L.choice && L.choice.model === m.id ? L.choice.r ?? null : null } : null;
+  const running = runningChatModel();
+  if (!L?.models || !running) return null;
+  // Catalog patterns for Inkling are shared across variants; only an exact match identifies one.
+  const m = L.models.find((x) => x.id.toLowerCase() === running.toLowerCase()) ||
+    L.models.find((x) => {
+      if (x.engine || inklingId(x.id)) return false;
+      try { return new RegExp(x.match || x.id, "i").test(running); } catch { return false; }
+    });
+  return m ? { model: m.id, r: !m.engine && !inklingId(m.id) && L.choice?.model === m.id ? L.choice.r ?? null : null } : null;
 }
 
 // The name of a start job: the model of the list (with its tail skip) or the 11/9 preset.
 function jobName(job) {
   const m = job.model && modelOf(job.model);
-  const name = m ? m.name : STRATA_PRESETS[job.mode] || null;
-  return name && job.r ? `${name} R${job.r}` : name;
+  const inkling = inklingId(job.model);
+  const name = m?.name || INKLING_NAMES.get(inkling) || STRATA_PRESETS[job.mode] || null;
+  return name && job.r && !m?.engine && !inkling ? `${name} ${rLabel(job.r)}` : name;
 }
 
 // 11/17 係 W6: the engine could not start again for lack of GPU memory ("seat_short"): suggest a lighter model.
@@ -339,7 +343,7 @@ const SeatShort = {
 };
 
 function openStrataSheet(opts) {
-  let wantLight = !!(opts && opts.light);   // 11/17 係 W6: from the seat_short notice: the lightest model is chosen first
+  const wantLight = !!(opts && opts.light);   // 11/17 係 W6: from the seat_short notice: the lightest model is chosen first
   const seatBox = h("div", { class: "seat-short-box hidden" });
   const state = h("div", { class: "strata-state" });
   const logBox = h("pre", { class: "job-log hidden" });
@@ -357,23 +361,27 @@ function openStrataSheet(opts) {
   let shownKey = "";
   const prog = new Map(); // id -> {fill, text}: the progress line, updated in place between redraws
   let closed = false;
+  let submitting = false;
   let timer = null;
 
-  function defaultSel() {
+  function selectModel(m, r) {
+    return { model: m.id, r: m.engine ? null : r ?? Spec.v?.recommended_r ?? m.default_r ?? 7 };
+  }
+
+  function defaultSel(run) {
     const L = Models.list;
     const ms = ((L && L.models) || []).filter((x) => !x.pending);   // 11/15: 準備中のモデルは選ばない
-    if (wantLight && ms.length) {   // 11/17 係 W6: the lightest model (the smallest experts) first
-      const lm = ms.slice().sort((a, b) => (a.experts_gib || 0) - (b.experts_gib || 0))[0];
-      return { model: lm.id, r: lm.default_r || (Spec.v && Spec.v.recommended_r) || 7 };
+    if (wantLight) {
+      const lm = ms.filter((m) => !m.engine && m.experts_gib).sort((a, b) => a.experts_gib - b.experts_gib)[0];
+      if (lm) return selectModel(lm, lm.default_r);
     }
-    const ok = (id) => { const m = ms.find((x) => x.id === id); return m && m.local.complete ? m : null; };
-    const run = L && L.running;
-    const m = (run && ms.find((x) => x.id === run.model)) || (L && L.choice && ok(L.choice.model)) || ms.find((x) => x.recommended && x.local.complete)
-      || ms.find((x) => x.local.complete) || ms.find((x) => x.recommended) || ms[0];
+    const ready = ms.filter(engineModelReady);
+    const m = ms.find((x) => x.id === run?.model) || ready.find((x) => x.id === L.choice?.model) || ready.find((x) => x.recommended)
+      || ready[0] || ms.find((x) => x.recommended) || ms[0];
     if (!m) return null;
-    const rec = Spec.v ? Spec.v.recommended_r : null;   // 11/15: 決めていなければ，この PC に勧める R
-    const r = run && run.model === m.id && run.r ? run.r : L.choice && L.choice.model === m.id && L.choice.r ? L.choice.r : rec || m.default_r || 7;
-    return { model: m.id, r: SHOWN_R.includes(r) ? r : rec || 7 };
+    const r = run?.model === m.id ? run.r : L.choice?.model === m.id ? L.choice.r : null;
+    // Preserve the live rank, including legacy R5/R6, without offering them for new starts.
+    return selectModel(m, run?.model === m.id || SHOWN_R.includes(r) ? r : null);
   }
 
 
@@ -386,7 +394,7 @@ function openStrataSheet(opts) {
     };
   }
 
-  function modelItem(m) {
+  function modelItem(m, run) {
     const L = Models.list;
     if (m.pending) {   // 11/15 本人: Sync-XS も一覧に．pack がまだ無い間は「準備中」で，選べない
       return h("div", { class: "msel-item strata-model pending", "aria-disabled": "true" },
@@ -398,7 +406,8 @@ function openStrataSheet(opts) {
     const on = sel && sel.model === m.id;
     const tags = [];
     if (m.recommended) tags.push(h("span", { class: "mini model-tag rec" }, tr("Recommended")));
-    if (m.running) tags.push(h("span", { class: "mini model-tag" }, tr("Running")));
+    const running = run?.model === m.id;
+    if (running) tags.push(h("span", { class: "mini model-tag" }, tr("Running")));
     const lines = [h("div", { class: "msel-note" }, modelDesc(m))];
     const loc = m.local;
     let have = loc.complete
@@ -406,7 +415,9 @@ function openStrataSheet(opts) {
       : loc.have_bytes + loc.partial_bytes > 0 ? tr("Partly downloaded · {0} of {1}", [fmtGiB(loc.have_bytes + loc.partial_bytes), fmtGiB(loc.total_bytes)])
         : tr("Not downloaded · {0}", [fmtGiB(loc.total_bytes)]);
     lines.push(h("div", { class: "msel-note" }, have));
-    lines.push(h("div", { class: `msel-note${m.fits ? "" : " fit-warn"}` }, m.fits
+    // a model on its own engine (Inkling 2 Mini): no RAM tier; the engine splits the experts between VRAM and RAM itself
+    if (m.engine) lines.push(h("div", { class: "msel-note" }, tr("NVIDIA GPUs only. The experts that do not fit in GPU memory stay in RAM and the CPU computes them.")));
+    else lines.push(h("div", { class: `msel-note${m.fits ? "" : " fit-warn"}` }, m.fits
       ? tr("Runs fine on this PC", [I18n.num(Math.round(m.experts_gib * 10) / 10)])
       : m.short === "vram" ? tr("Slow on this PC (not enough VRAM)")
       : m.fits_ram_gib ? tr("This model is for {0} GB of RAM. This PC ({1} GB) reads part of it from the SSD, so it is slower.", [m.fits_ram_gib, Math.round(L.ram_gib)])
@@ -441,7 +452,7 @@ function openStrataSheet(opts) {
       // 11/17 W1: the button is always on: another download may be running, this one then waits its turn (D: the shared parts the
       // model lacks come with it, so the size on the button includes them)
       const press = act(async () => {
-        sel = { model: m.id, r: sel ? sel.r : 7 }; picked = true;
+        sel = selectModel(m, running ? run.r : SHOWN_R.includes(sel?.r) ? sel.r : null); picked = true;
         const wait = !!(L.queue && L.queue.length);
         await modelsPost("download", m.id);
         if (wait) toast(tr("Added to the list. It starts after the others."));
@@ -454,7 +465,7 @@ function openStrataSheet(opts) {
         if (m.shared_pending && m.shared_pending.length) {
           acts.push(h("button", { class: "btn slim primary", type: "button", onclick: press }, tr("Download the shared parts ({0})", [fmtGiB(m.shared_bytes || 0)])));
         }
-        if (!loc.verified && !m.running) acts.push(h("button", { class: "btn slim ghost", type: "button", disabled: busyOther, onclick: act(() => modelsPost("verify", m.id)) }, tr("Check the files")));
+        if (!loc.verified && !running) acts.push(h("button", { class: "btn slim ghost", type: "button", disabled: busyOther, onclick: act(() => modelsPost("verify", m.id)) }, tr("Check the files")));
       }
     }
     if (loc.complete || loc.have_bytes > 0) {
@@ -474,7 +485,12 @@ function openStrataSheet(opts) {
     }
     const item = h("div", {
       class: `msel-item strata-model${on ? " current" : ""}`, role: "radio", tabindex: "0", "aria-checked": on ? "true" : "false",
-      onclick: (e) => { if (e.target.closest("button")) return; sel = { model: m.id, r: sel ? sel.r : m.default_r || 7 }; picked = true; render(); },
+      onclick: (e) => {
+        if (e.target.closest("button")) return;
+        sel = selectModel(m, running ? run.r : SHOWN_R.includes(sel?.r) ? sel.r : null);
+        picked = true;
+        render();
+      },
       onkeydown: (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); e.currentTarget.click(); } },
     },
     h("div", { class: "msel-text" },
@@ -484,18 +500,20 @@ function openStrataSheet(opts) {
     return item;
   }
 
-  function renderModels() {
+  function renderModels(run) {
     const L = Models.list;
     const show = !!(L && L.models && L.models.length);
     listBox.classList.toggle("hidden", !show);
     rBox.classList.toggle("hidden", !show);
-    why.classList.toggle("hidden", !show);
+    why.classList.toggle("hidden", !show || !L.models.some((m) => m.recommended && !m.pending));
     if (!show) return;
-    if (!sel || !picked) sel = defaultSel();
+    if (!picked || !L.models.some((m) => m.id === sel?.model && !m.pending)) { picked = false; sel = defaultSel(run); }
+    const selM = modelOf(sel?.model);
+    rBox.classList.toggle("hidden", !selM || !!selM.engine);
     const st = Store.S.strata;
-    const key = JSON.stringify([sel, Spec.v && Spec.v.recommended_r, L.active, L.ram_gib, L.running, L.delete_blocked,
-      st && st.online, !!(st && st.job && !st.job.endedAt), L.models.map((m) => [m.id, m.local.complete, m.local.verified, m.local.have_bytes > 0, m.local.have_bytes + m.local.partial_bytes > 0,
-      m.download && m.download.state, m.download && m.download.mode, m.download && m.download.error, m.running, m.recommended, m.fits, m.short, m.shared_missing,
+    const key = JSON.stringify([sel, Spec.v && Spec.v.recommended_r, L.active, L.ram_gib, run, L.delete_blocked,
+      st && st.online, !!(st && st.job && !st.job.endedAt), L.models.map((m) => [m.id, m.pending, m.engine, m.local.complete, m.local.verified, m.local.have_bytes > 0, m.local.have_bytes + m.local.partial_bytes > 0,
+      m.download && m.download.state, m.download && m.download.mode, m.download && m.download.error, m.recommended, m.fits, m.short, m.shared_missing,
       m.shared_pending, m.shared_bytes]), (L.queue || []).map((q) => [q.id, q.active]),
     (L.shared || []).map((x) => [x.id, x.local.complete, x.download && x.download.state, x.download && x.download.error])]);
     if (key === shownKey) {
@@ -512,7 +530,7 @@ function openStrataSheet(opts) {
     shownKey = key;
     prog.clear();
     const sharedEl = sharedRow(L, act(() => stopSharedParts()), (fill, text) => prog.set("shared", { fill, text }));   // 11/17 W1
-    listBox.replaceChildren(h("div", { class: "set-label muted small" }, tr("Model")), h("div", { class: "msel-group" }, L.models.map(modelItem)),
+    listBox.replaceChildren(h("div", { class: "set-label muted small" }, tr("Model")), h("div", { class: "msel-group" }, L.models.map((m) => modelItem(m, run))),
       ...(sharedEl ? [h("div", { class: "msel-group" }, sharedEl)] : []));
     const rec = L.models.find((m) => m.recommended);
     if (rec) {
@@ -525,6 +543,7 @@ function openStrataSheet(opts) {
       class: `chip${sel.r === r ? " on" : ""}`, type: "button", "aria-pressed": sel.r === r ? "true" : "false",
       onclick: () => { sel = { ...sel, r }; picked = true; render(); },
     }, label);
+    if (!selM || selM.engine) { rBox.replaceChildren(); return; }
     rBox.replaceChildren(h("div", { class: "set-label muted small" }, tr("Tail skip at start")),
       // 11/15 本人: R4・R7・R10 の 3 択と推奨の印．起動時の tail skip は API を別のソフトから使うときだけ効く
       h("div", { class: "set-choices" }, [4, 7, 10].map((r) => choice(r, Spec.v && Spec.v.recommended_r === r ? `${rLabel(r)} · ${tr("Recommended for this PC")}` : rLabel(r)))),
@@ -536,7 +555,10 @@ function openStrataSheet(opts) {
     const st = Store.S.strata;
     const job = st && st.job;
     const working = strataJobRunning();
-    state.replaceChildren(strataPill(), ...(st && st.online && st.model ? [h("span", { class: "muted small" }, strataPresetName(st.model))] : []));
+    const blocked = working || submitting || !st || st.auth === false;
+    const running = runningChatModel();
+    state.replaceChildren(strataPill());
+    if (running) state.append(h("span", { class: "muted small" }, localModelName(running)));
     if (job) {
       const secs = Math.round(((job.endedAt || Date.now()) - job.startedAt) / 1000);
       const preset = job.kind === "start" ? jobName(job) : null;
@@ -561,32 +583,34 @@ function openStrataSheet(opts) {
     const online = !!(st && st.online);
     seatBox.classList.toggle("hidden", !SeatShort.noted());
     if (SeatShort.noted() && !seatBox.firstChild) seatBox.replaceChildren(h("div", { class: "seat-short-text" }, tr("The GPU memory was not enough to start this model. A lighter model (Sync-XS) is likely to start.")));
-    const ram = DSH_CONFIG.strataRamGiB;
     const L = Models.list;
-    if (L && L.models) {
-      L.running = liveRunning();
-      for (const x of L.models) x.running = !!L.running && L.running.model === x.id;
-    }
-    if (!L || !L.models || !L.models.length) {
-      // the 11/9 sheet: two start buttons (an old relay, or the list not read yet)
-      renderModels();
-      btn.disabled = working || !st;
-      btn2.disabled = working || !st;
-      btn.className = `btn wide-in ${online ? "danger" : "primary"}`;
-      btn.textContent = working ? tr("Working…") : online ? tr("Stop Strata") : tr("Start {0} (usual)", [STRATA_PRESETS.syncm]);
-      btn2.textContent = tr("Start {0} (fast)", [STRATA_PRESETS.syncs]);
-      btn2.className = "btn wide-in ghost";
-      btn2.classList.toggle("hidden", online || working || (!Models.legacy && !Models.error));
-      btn.onclick = () => run(() => (online ? stopStrata() : startStrata("syncm")));
-      btn2.onclick = () => run(() => startStrata("syncs"));
-      note.textContent = online
-        ? (ram ? tr("Stopping frees about {0} GiB of RAM.", [ram]) : tr("Stopping frees RAM."))
-        : tr("{0} is the usual setting (higher quality). {1} decodes faster but with lower quality.", [STRATA_PRESETS.syncm, STRATA_PRESETS.syncs])
-          + tr(" Both can read images. Other apps are pushed out to the page file before loading, so the PC is slow for a while (1–2 min).");
-      if (!Models.legacy && !Models.error && !L) note.textContent += `\n${tr("Reading the model list…")}`;
+    const live = liveRunning();
+    renderModels(live);
+    btn2.className = "btn wide-in ghost";
+    btn2.textContent = tr("Stop Strata");
+    btn2.disabled = blocked;
+    btn2.classList.toggle("hidden", !online || working);
+    btn2.onclick = () => run(stopStrata);
+    btn.className = "btn wide-in primary";
+    btn.onclick = null;
+    const error = Models.error || L?.catalog_error;
+    if (!L?.models?.length) {
+      // Legacy preset buttons are valid only after a confirmed 404, not while loading or on failure.
+      const legacyStart = Models.legacy && !error && !online && !working;
+      btn.disabled = blocked || !legacyStart;
+      btn.textContent = working ? tr("Working…") : tr("Start {0} (usual)", [STRATA_PRESETS.syncm]);
+      btn.classList.toggle("hidden", !working && !legacyStart);
+      btn.onclick = legacyStart ? () => run(() => startStrata("syncm")) : null;
+      if (legacyStart) {
+        btn2.textContent = tr("Start {0} (fast)", [STRATA_PRESETS.syncs]);
+        btn2.classList.remove("hidden");
+        btn2.onclick = () => run(() => startStrata("syncs"));
+      }
+      note.textContent = error ? tr("Could not read the local model list: {0}", [error])
+        : legacyStart ? tr("{0} is the usual setting (higher quality). {1} decodes faster but with lower quality.", [STRATA_PRESETS.syncm, STRATA_PRESETS.syncs])
+        : L ? tr("No local models are available.") : Models.legacy ? "" : tr("Reading the model list…");
       return;
     }
-    renderModels();
     const lau = !!L.launcher && typeof Setup !== "undefined";
     if (lau !== (extra.childElementCount > 0)) {
       extra.replaceChildren(...(lau ? [
@@ -594,60 +618,41 @@ function openStrataSheet(opts) {
         sheetItem("power", tr("Stop…"), () => Setup.openStopSheet()),
       ] : []));
     }
-    const m = modelOf(sel.model);
-    const label = m ? `${m.name} R${sel.r}` : "";
-    const run0 = L.running;
-    const same = online && run0 && run0.model === sel.model && (!run0.r || run0.r === sel.r);
-    const ready = !!m && m.local.complete && !dlActive(m) && !(m.shared_missing && m.shared_missing.length);
-    btn.disabled = working || !st || (!same && !ready);
-    btn2.disabled = working || !st;
-    if (working) {
-      btn.className = "btn wide-in primary";
-      btn.textContent = tr("Working…");
-      btn2.classList.add("hidden");
-    } else if (!online) {
-      btn.className = "btn wide-in primary";
-      btn.textContent = tr("Start {0}", [label]);
-      btn2.classList.add("hidden");
-      btn.onclick = () => run(() => startStrata(m.preset, { model: m.id, r: sel.r, name: label }));
-    } else if (same) {
-      btn.className = "btn wide-in danger";
-      btn.textContent = tr("Stop Strata");
-      btn2.classList.add("hidden");
-      btn.onclick = () => run(() => stopStrata());
-    } else {
-      btn.className = "btn wide-in primary";
-      btn.textContent = tr("Switch to {0}", [label]);
-      btn2.className = "btn wide-in ghost";
-      btn2.textContent = tr("Stop Strata");
-      btn2.classList.remove("hidden");
-      btn.onclick = () => run(() => startStrata(m.preset, { model: m.id, r: sel.r, name: label, restart: true }));
-      btn2.onclick = () => run(() => stopStrata());
-    }
-    note.textContent = online
-      ? (ram ? tr("Stopping frees about {0} GiB of RAM.", [ram]) : tr("Stopping frees RAM."))
-        + (same ? "" : tr(" Switching takes 1–2 minutes."))
+    const m = modelOf(sel?.model);
+    const same = m && live?.model === m.id && (m.engine || live.r === sel.r);
+    const label = m && (m.engine ? m.name : `${m.name} ${rLabel(sel.r)}`);
+    const ready = engineModelReady(m);
+    btn.disabled = blocked || !ready || !!error;
+    btn.classList.toggle("hidden", !working && (!m || !!same));
+    btn.textContent = working ? tr("Working…") : !m || same ? "" : online ? tr("Switch to {0}", [label]) : tr("Start {0}", [label]);
+    if (!btn.disabled && !same) btn.onclick = () => run(() => startStrata(m.preset, { model: m.id, r: sel.r, name: label, restart: online }));
+    note.textContent = error ? tr("Could not read the local model list: {0}", [error])
+      : !m ? tr("No local models are available.")
+      : same ? tr("{0} is already running.", [live.r == null ? m.name : label])
+      : !m.local.complete ? tr(" {0} is not downloaded.", [m.name]).trimStart()
+      : !ready ? tr("The selected model is not ready to start. Check its files and download status below.")
+      : online ? tr(" Switching takes 1–2 minutes.").trimStart()
       : tr("Starting takes 1–2 minutes, and the PC is slow meanwhile.");
-    if (m && !m.local.complete) note.textContent += tr(" {0} is not downloaded.", [m.name]);
-    if (m && m.short === "ram" && m.fits_ram_gib) note.textContent += `
-${tr("This model is for {0} GB of RAM. This PC ({1} GB) reads part of it from the SSD, so it is slower.", [m.fits_ram_gib, Math.round(L.ram_gib)])}`;   // 11/17 係 W6
-    if (typeof EnvCheck !== "undefined") EnvCheck.strata(state, btn, online && same);   // 11/15 係 C env: not supported -> no start
+    if (online) note.textContent += `\n${tr("Stopping frees RAM.")}`;
+    if (typeof EnvCheck !== "undefined") EnvCheck.strata(state, btn, false);
   }
 
   async function run(fn) {
-    btn.disabled = true;
-    btn2.disabled = true;
+    if (submitting || strataJobRunning()) return;
+    submitting = true;
+    render();
     try {
       await fn();
     } catch (e) {
       toast(e.message);
+    } finally {
+      submitting = false;
+      if (!closed) render();
     }
-    render();
   }
 
   async function poll() {
-    if (!Spec.v) await Spec.load();
-    await loadModels();
+    await Promise.all([loadModels(), !Spec.v && Spec.load()]);
     if (closed) return;
     render();
     const fast = (Models.list && (Models.list.active || (Models.list.queue || []).length)) || strataJobRunning();
@@ -656,7 +661,13 @@ ${tr("This model is for {0} GB of RAM. This PC ({1} GB) reads part of it from th
 
   const off = Store.on((topic) => { if (topic === "strata" || topic === "sessions") render(); });
   const memBox = typeof MemView !== "undefined" ? MemView.inline() : null;   // 11/17 係 W5: the memory box (hidden unless the launcher relay answers)
-  openSheet([h("div", { class: "sheet-title" }, "Strata"), seatBox, state, note, memBox, listBox, why, rBox, btn, btn2, logBox, extra],
+  const title = opts?.onBack ? h("div", { class: "msel-head" },
+    h("button", { class: "msel-x", type: "button", "aria-label": tr("Back"), html: ICONS.back,
+      onclick: () => { s.close(true); opts.onBack(); } }),
+    h("div", { class: "msel-title" }, tr("Manage local models")), h("div"))
+    : h("div", { class: "sheet-title" }, "Strata");
+  const s = openSheet([title, opts?.onBack ? h("div", { class: "sheet-note muted" }, tr("Changing the local model affects all chats. It does not change their saved chat routes.")) : null,
+    seatBox, state, note, memBox, listBox, why, rBox, btn, btn2, logBox, extra],
     { onClose: () => { closed = true; clearTimeout(timer); off(); } });
   render();
   poll();

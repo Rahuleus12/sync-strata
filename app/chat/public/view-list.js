@@ -337,7 +337,7 @@ function NewView(go) {
   // 11/10: 新しい会話はいつも R4・低で始める（本人）．dsh の既定（最後にどこかで選んだモデル）には左右されない．
   // この画面でモデルを選び直したときだけそれに従う．R4 が一覧にないとき（dsh の設定から消したなど）は dsh の既定
   const NEW_DEFAULT = DSH_CONFIG.newSessionModel;
-  const newDefault = () => (Store.modelInfo(NEW_DEFAULT) ? NEW_DEFAULT : Store.selection(null));
+  const newDefault = () => defaultChatRoute(Store.modelInfo(NEW_DEFAULT) ? NEW_DEFAULT : Store.selection(null));
   const wsChip = h("button", { class: "chip big", type: "button" });
   const composer = Composer({
     getSelection: () => sel || newDefault(),
@@ -359,10 +359,15 @@ function NewView(go) {
         tmpKey = key;
         creating = (async () => {
           const { sessionId } = await Api.createSession(w.workspaceId);
-          if (use) await Api.selectModel(sessionId, use.provider, use.model, use.reasoningEffort).catch(() => {});
-          return sessionId;
+          try {
+            if (use) await Api.selectModel(sessionId, use.provider, use.model, use.reasoningEffort);
+            return { sessionId, route: use };
+          } catch (routeError) {
+            // Open the created chat but don't send under dsh's fallback route.
+            return { sessionId, routeError };
+          }
         })();
-        creating.then((sessionId) => {
+        creating.then(({ sessionId }) => {
           if (tmpKey === key) tmpKey = sessionId; // 移るまでの間に押した分も，同じ会話の列の後ろへ
           Outbox.rekey(key, sessionId);
           if (el.isConnected) go(`#/s/${encodeURIComponent(sessionId)}`, "replace");
@@ -370,8 +375,11 @@ function NewView(go) {
       }
       const made = creating;
       Outbox.send(tmpKey, text, atts, async () => {
-        const sessionId = await made;
-        return atts && atts.length ? Attach.send({ sessionId, text, atts, mode: "queue", sel: use }) : Api.prompt(sessionId, text, "queue");
+        const { sessionId, route, routeError } = await made;
+        if (routeError) throw routeError;
+        const problem = chatRouteProblem(route);
+        if (problem) throw new Error(problem);
+        return atts && atts.length ? Attach.send({ sessionId, text, atts, mode: "queue", sel: route }) : Api.prompt(sessionId, text, "queue");
       }, { floor: null, inboxSeen: new Set() });
     },
   });
@@ -437,7 +445,7 @@ function NewView(go) {
 
   const off = Store.on((topic) => {
     if (topic === "workspaces") renderWs();
-    if (topic === "catalog" || topic === "projections") composer.refresh();
+    if (topic === "catalog" || topic === "projections" || topic === "strata") composer.refresh();
   });
   renderWs();
   setTimeout(() => composer.focus(), 50);

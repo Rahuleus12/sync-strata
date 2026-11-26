@@ -5,6 +5,18 @@
 #   R が小さいほど速く，答えの質が下がる（R7 いつもの精度，R4 速さ優先．コード書きは R6 以上を勧める）．
 # - contextWindow はエンジンの文脈長以下にする（ここは 262144 のとき）．エンジンを短い文脈で動かすときはここも下げる．
 # - streamIdleTimeoutMs: 中継はエンジンを 1 件ずつ使うので，子を何本も出すと前の要求の後ろで長く待つ．3 時間にしておく．
+# Disable feedback OTLP, official API diagnostic fields, and Desktop analytics.
+# The launcher enforces these same rows even for existing profiles.
+- id: session-telemetry-otel
+  disabled: true
+- id: session-log-deepseek
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: desktop-product-telemetry
+  disabled: true
+- id: product-analytics
+  disabled: true
 - id: llm-pi-ai
   config:
     providers:
@@ -66,6 +78,16 @@
               low: low
               medium: medium
               high: high
+          - id: inkling-2-mini
+            name: Inkling 2 Mini
+            contextWindow: 262144
+            maxTokens: 65536
+            input: [ text ]
+          - id: inkling-2-mini-uncensored
+            name: Inkling 2 Mini Uncensored
+            contextWindow: 262144
+            maxTokens: 65536
+            input: [ text ]
 - id: agent-default-model
   config:
     provider: strata

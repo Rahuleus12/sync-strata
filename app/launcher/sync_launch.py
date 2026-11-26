@@ -32,6 +32,8 @@ import sync_i18n  # noqa: E402  11/17 I-10: 文字だけの画面（TERM=linux�
 ROOT = os.path.join(H.home(), "run").replace("\\", "/")   # 11/15 app1115: SYNC_HOME\run（前は results\night-1115\launcher）
 LAY = H.LAYOUT
 PY = LAY["python"] or sys.executable                  # エンジンの入口（serve の server.py）を流す Python
+if not os.path.isfile(PY):
+    PY = sys.executable                               # ソースの写し（app/python が無い）: この起動の道具を流している Python
 TEMPLATE = LAY["engine_template"]                     # 起動の設定のひな形（読むだけ）．入れた先では道のりの無いひな形 engine-template.json
 ENGINE = LAY["engine_exe"]
 # 走りながらエンジンが自分で直す旗（11/15 の夜に測って採ったもの）: RAM の写しを育てる／CPU と GPU の分担を実測の待ちで寄せる／CPU の優先度を「通常以上」に
@@ -607,10 +609,12 @@ def write_head_name(name=None):
     try:
         if name is None:
             mid = json.load(open(H.path("models-state", "choice.json"), encoding="utf-8")).get("model")
-            name = next((c["name"] for c in PACKS if c["id"] == mid), None)
+            name = next((c["name"] for c in PACKS if c["id"] == mid), None) or \
+                next((m["name"] for m in H.catalog().get("models", []) if m["id"] == mid and m.get("engine") == "inkling2"), None)
         if not name:
             return
-        text = f"Qwen3.8-Flash-Next {name}\n"
+        # Inkling 2 Mini's names are whole names; the Qwen packs' are the Sync size after the model's
+        text = (name if name.startswith("Inkling") else f"Qwen3.8-Flash-Next {name}") + "\n"
         f = f"{ROOT}/head-model-name.txt"
         if os.path.exists(f) and open(f, encoding="utf-8").read() == text:
             return
@@ -702,8 +706,10 @@ def stop_engine(port):
     return 1
 
 
-def start_engine(cfg, s, key):
-    """エンジンを起こす．試しのときは環境変数 SYNC_ENGINE_CMD（{port} と {config} を差し込む命令．偽の Strata など）を代わりに起こす"""
+def start_engine(cfg, s, key, server_py=None):
+    """エンジンを起こす．試しのときは環境変数 SYNC_ENGINE_CMD（{port} と {config} を差し込む命令．偽の Strata など）を代わりに起こす．
+    server_py: 起こす server.py（Inkling 2 Mini はキットの中の serve．無ければ SERVER_PY）"""
+    server_py = server_py or SERVER_PY
     port = s["api_port"]
     fake = os.environ.get("SYNC_ENGINE_CMD")
     child_env = dict(os.environ)
@@ -715,10 +721,10 @@ def start_engine(cfg, s, key):
         cmd = [x[1:-1] if len(x) > 1 and x[0] == x[-1] == '"' else x for x in cmd]
         sv = H.spawn("engine", cmd, env=child_env, log=f"{ROOT}/server.out", port=port)
         return sv
-    cmd = [PY, "-s", "-X", "utf8", SERVER_PY, "--engine", "strata", "--config", os.path.normpath(cfg), "--port", str(port)]
+    cmd = [PY, "-s", "-X", "utf8", server_py, "--engine", "strata", "--config", os.path.normpath(cfg), "--port", str(port)]
     if s["api_host"] not in ("127.0.0.1", "localhost"):
         cmd += ["--host", s["api_host"]]
-    sv = subprocess.Popen(cmd, cwd=os.path.dirname(os.path.dirname(SERVER_PY)), stdout=open(f"{ROOT}/server.out", "w"), stderr=subprocess.STDOUT,
+    sv = subprocess.Popen(cmd, cwd=os.path.dirname(os.path.dirname(server_py)), stdout=open(f"{ROOT}/server.out", "w"), stderr=subprocess.STDOUT,
                           env=child_env, creationflags=0x00000200 | 0x08000000)
     H.remember("engine", sv.pid, port, real=True)
     return sv
@@ -863,6 +869,142 @@ def loosen(step, cur, seat_short=False):
 JSON_OUT = False
 
 
+# ------------------------------------------------------------------ Inkling 2 Mini
+# The catalog's models with "engine": "inkling2" run on the app's engine when it has the Inkling path (bin/strata-ink2
+# beside strata, serve/inkling.py in its serve), else on a separate kit (LAYOUT["inkling_kit"], built by
+# tools/build_inkling_kit.sh).  They are one GGUF file each; the DSpark drafter is the shared part
+# with the role "inkling.dspark".  None of the Qwen pack settings (RAM budget, tail skip, VRAM seats) apply: the engine
+# places the experts itself (the most used in VRAM, the rest in RAM, computed by the CPU).
+INKLING_CTX = 262144
+
+
+def inkling_model(want):
+    """The catalog entry of an Inkling model: by id, or (want "auto") the first one on this PC when no Qwen pack is"""
+    ms = [m for m in H.catalog().get("models", []) if m.get("engine") == "inkling2"]
+    if want not in (None, "auto"):
+        return next((m for m in ms if m["id"] == want), None)
+    if any(os.path.exists(os.path.join(p["dir"], "experts.v2.bin")) for p in PACKS):
+        return None
+    return next((m for m in ms if H.complete(m)), None)
+
+
+def inkling_context(cli):
+    """The context: --context, else the setting when it is a number, else 256K (the engine lowers it to what fits)"""
+    for v in (cli, H.settings_raw().get("context")):
+        if v not in (None, "", "auto"):
+            try:
+                return int(str(v).lower().replace("k", "")) * (1024 if str(v).lower().endswith("k") else 1)
+            except ValueError:
+                pass
+    return INKLING_CTX
+
+
+def inkling_engine():
+    """Where Inkling runs: {"exe", "server_py", "tools", "cwd", "libs"}, or None when this app has no Inkling engine.
+    The app's own engine first (the unified engine runs the Qwen packs and Inkling), else the separate kit."""
+    if ENGINE and os.path.isfile(os.path.join(os.path.dirname(ENGINE), "strata-ink2" + H.X)) and SERVER_PY and \
+            os.path.isfile(os.path.join(os.path.dirname(SERVER_PY), "inkling.py")):
+        root = os.path.dirname(os.path.dirname(SERVER_PY))
+        return {"exe": ENGINE, "server_py": SERVER_PY, "tools": os.path.join(root, "tools"), "cwd": LAY.get("engine_cwd") or root,
+                "libs": list(LAY.get("engine_lib_dirs") or [os.path.dirname(ENGINE)])}
+    kit = LAY.get("inkling_kit")
+    if kit:
+        libs = [os.path.join(kit, "bin")] + [d for d in (os.path.dirname(ENGINE) if ENGINE else None, "/opt/cuda/lib64",
+                                                         "/usr/local/cuda/lib64") if d and os.path.isdir(d)]
+        return {"exe": os.path.join(kit, "bin", "strata" + H.X), "server_py": os.path.join(kit, "serve", "serve", "server.py"),
+                "tools": os.path.join(kit, "serve", "tools"), "cwd": os.path.join(kit, "serve"), "libs": libs}
+    return None
+
+
+def inkling_config(m, eng, context, extra_env):
+    """The server config for an Inkling model (run/cfg/inkling.json) and its engine log.  eng: inkling_engine()"""
+    gguf = os.path.join(m["local_dir"], m["files"][0]["path"])
+    tok = H.path("engine-data", f"tokenizer-{m['id']}", "tokenizer")
+    if not os.path.isfile(os.path.join(tok, "vocab.json")):
+        say("  トークナイザーを GGUF から読み出しています（初回だけ）...")
+        subprocess.run([PY, "-s", os.path.join(eng["tools"], "strata_tokenizer.py"), "--gguf", gguf,
+                        "--out", os.path.dirname(tok)], check=True, stdout=subprocess.DEVNULL)
+    args = ["--native", gguf, "--max-context", str(int(context)), "--prefill", "auto"]
+    dspark = H.shared_paths().get("inkling.dspark")
+    if dspark and os.path.isfile(dspark):
+        args += ["--dspark", dspark, "--dspark-n", str(int(m.get("dspark_n") or 3))]
+    else:
+        say("  ！DSpark（下書きのモデル）がありません。下書きなしで動かします（書く速さが 3 割ほど落ちます）。")
+    env = {}
+    for kv in extra_env:
+        k, _, v = kv.partition("=")
+        env[k] = v
+    os.makedirs(f"{ROOT}/cfg", exist_ok=True)
+    log = os.path.normpath(f"{ROOT}/strata-auto.log")
+    c = {"exe": eng["exe"], "args": args, "cwd": eng["cwd"], "tokenizer": tok,
+         "model_name": m.get("model_name") or m["id"], "arch": "inkling2_loop", "log": log, "port": PORT, "lib_dirs": eng["libs"],
+         "env": env, "note": "起動の道具（launcher/sync_launch.py）が作った設定（Inkling 2 Mini）"}
+    try:
+        import sync_env as _SE
+        _g = _SE.check()["gpu"]
+        if _g.get("vendor") == "nvidia" and _g.get("index") is not None:
+            c["gpu"] = int(_g["index"])
+    except Exception:
+        pass
+    path = f"{ROOT}/cfg/inkling.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(c, f, ensure_ascii=False, indent=1)
+    return path, log
+
+
+def inkling_up(m, s, a, gui, key, done):
+    """sync up for an Inkling model: the files, the engine, the config, dsh"""
+    eng = inkling_engine()
+    if not H.complete(m):
+        say(f"{m['name']} は手元にありません（会話の画面でダウンロードしてください）．")
+        return done(4, error=f"{m['name']} がありません", first_run=True)
+    if not eng:
+        say("このエンジンは Inkling 2 Mini を動かせません（Inkling の入った版のエンジンに更新してください）．")
+        return done(7, error="Inkling 2 Mini のエンジンがありません")
+    ev = __import__("sync_env").check()
+    if ev["gpu"].get("vendor") != "nvidia":
+        say("Inkling 2 Mini は NVIDIA の GPU（CUDA）だけで動きます．")
+        return done(8, error="unsupported", env={"gpu": ev["gpu"]})
+    ctx = inkling_context(a.context)
+    pick = {"id": m["id"], "name": m["name"], "R": None, "budget": None, "reserve": None, "engine": "inkling2"}
+    cfg, log = inkling_config(m, eng, ctx, a.env)
+    say(f"  ・{m['name']}，文脈 {ctx // 1024}K（入りきらなければエンジンが縮めます），専門家は VRAM と RAM に分けて置きます（RAM の分は CPU が計算）")
+    rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "pick": pick, "config": cfg, "settings": s}
+    json.dump(rec, open(f"{ROOT}/last.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    picked = {"model": m["id"], "engine": "inkling2", "context": ctx}
+    if a.dry:
+        say(f"（--dry: 起動しません．設定は {cfg}）")
+        return done(0, dry=True, pick=picked, config=cfg)
+    save_choice({"id": m["id"], "R": None}, s["relay_port"])
+    if gui:
+        write_head_name(m["name"])
+        if not H.start_dsh(s, say):
+            return done(6, error=H.DSH_ERROR or "dsh か会話の画面の中継が起きませんでした", pick=picked)
+    say(f"3/5 {m['name']} を読み込んでいます（1〜2 分）...")
+    H._sync_ctx.note_start(cfg, log)
+    t0 = time.time()
+    sv = start_engine(cfg, s, key, server_py=eng["server_py"])
+    while time.time() - t0 < 600 and not health():
+        if sv.poll() is not None:
+            break
+        time.sleep(1)
+    if not health():
+        say("  起動できませんでした．記録: " + log)
+        return done(5, error="エンジンが起きませんでした", log=log, pick=picked)
+    say(f"  読み込み {time.time() - t0:.0f} 秒")
+    for line in api_info(s["api_host"], PORT, bool(key)):
+        say(line)
+    if not gui:
+        say("5/5 API だけ起こしました．止めるのは: sync down --engine")
+        return done(0, pick=picked)
+    url = f"http://127.0.0.1:{s['relay_port']}/m/"
+    if a.open:
+        say("5/5 " + open_gui(url=H.gui_url(s)))
+    else:
+        say(f"5/5 起きました．会話の画面: {url}")
+    return done(0, pick=picked, url=url)
+
+
 def main(argv=None):
     """sync up の本体（11/15 app1115 で INTERFACE.md の 3 に合わせた）．
     窓は --open のときだけ開く（窓を開くのはアプリの枠の仕事）．設定は settings.json → 引数の順で上書き，auto は PC を調べて決める"""
@@ -958,6 +1100,9 @@ def main(argv=None):
             if a.open:
                 say("  " + open_gui(url=H.gui_url(s)))
         return done(0, engine="already-up", url=f"http://127.0.0.1:{s['relay_port']}/m/" if gui else None)
+    ink = inkling_model(want)          # Inkling 2 Mini: its own kit and config (none of the Qwen pack steps below)
+    if ink:
+        return inkling_up(ink, s, a, gui, key, done)
     # 11/15 app1115: はじめて（モデルか共通の部品が無い）: GUI なら dsh と会話の画面だけ起こす（画面がダウンロードの案内を出す）
     ms = H.models_state()
     if not ms["installed"] or ms["missing_shared"]:

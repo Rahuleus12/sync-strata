@@ -491,7 +491,8 @@ async function strataControl(req, res, action) {
         if (d && DL_ACTIVE.has(d.state)) return sendJson(res, { ok: false, error: `${m.name} はダウンロードか検査の途中です` });
         if (!localState(m).complete) return sendJson(res, { ok: false, error: `${m.name} は手元にありません（先にダウンロード）` });
       }
-      const miss = sharedState(readCatalog()).filter((x) => !x.optional && !x.local.complete).map((x) => x.name);
+      const cat0 = readCatalog();
+      const miss = sharedFor(cat0, m).filter((x) => !x.optional && !localState(x).complete).map((x) => x.name);
       if (miss.length) return sendJson(res, { ok: false, error: `起動に要る共通の部品がありません: ${miss.join(", ")}` });
       const mode = m ? m.preset || m.id : legacy;
       runJob("start", startSteps(snapshot.online, m, r), "", mode, { model: m ? m.id : null, r, restart: snapshot.online });
@@ -843,8 +844,14 @@ function queueWrite(items) {
 const itemLeft = (m) => { const l = localState(m); return Math.max(0, l.total_bytes - l.have_bytes - l.partial_bytes); };
 const rootOf = (dir) => path.parse(path.resolve(String(dir || "."))).root.toLowerCase();
 // the shared parts a model's download brings along: not here yet, with a place to fetch from (the optional ones per AUTO_DOWNLOAD_OPTIONAL)
-function sharedWanted(cat) {
-  return (cat.shared || []).filter((s) => s.hf && s.hf.repo && (AUTO_DOWNLOAD_OPTIONAL || !s.optional) && !localState(s).complete);
+// The shared parts a model uses: those in its "needs" when it lists them (else all of them), and a part marked "only_for"
+// (Inkling 2 Mini's DSpark drafter) only for the models it names. Without a model: the parts not marked "only_for".
+function sharedFor(cat, m) {
+  return (cat.shared || []).filter((s) => (!m || !Array.isArray(m.needs) || m.needs.includes(s.id)) &&
+    (!Array.isArray(s.only_for) || (!!m && s.only_for.includes(m.id))));
+}
+function sharedWanted(cat, m) {
+  return sharedFor(cat, m).filter((s) => s.hf && s.hf.repo && (AUTO_DOWNLOAD_OPTIONAL || !s.optional) && !localState(s).complete);
 }
 // Whether the whole list fits the disks (per drive: what every item still has to fetch, plus the margin, against the free space).
 function queueDiskError(cat, ids) {
@@ -875,7 +882,7 @@ function enqueueDownload(id) {
   const isModel = (cat.models || []).some((x) => x.id === id);
   const q = queueRead().filter((x) => itemById(cat, x));
   const act = activeDownload(cat);
-  const deps = isModel ? sharedWanted(cat).map((s) => s.id) : [];
+  const deps = isModel ? sharedWanted(cat, m).map((s) => s.id) : [];
   const own = isModel && localState(m).complete ? [] : [id];
   if (!deps.length && !own.length) return { ok: false, error: `${m.name} はもう手元にあります` };
   const head = act && q.includes(act) ? [act] : [];
@@ -1047,12 +1054,16 @@ function modelsView() {
   const vramShort = (m) => vram != null && !!m.fits_vram_gib && vram + 0.5 < m.fits_vram_gib && !(m.vram_waived_ram_gib && ram + 1 >= m.vram_waived_ram_gib);
   const fitsOf = (m) => !ramShort(m) && !vramShort(m);
   // 11/15: pending（一覧にはあるが pack がまだ無いモデル）はおすすめにしない
-  const bySize = (cat.models || []).filter((m) => !m.pending).sort((a, b) => (b.experts_gib || 0) - (a.experts_gib || 0));
+  // models on their own engine (Inkling 2 Mini: "engine") are never the recommendation (it is among the Qwen packs)
+  const bySize = (cat.models || []).filter((m) => !m.pending && !m.engine).sort((a, b) => (b.experts_gib || 0) - (a.experts_gib || 0));
   const rec = bySize.find(fitsOf) || bySize[bySize.length - 1] || null;
-  const runningModel = snapshot.online ? (cat.models || []).find((m) => m.match && new RegExp(m.match, "i").test(snapshot.model || "")) : null;
+  const modelName = (snapshot.model || "").toLowerCase();
+  const entries = cat.models || [];
+  const runningModel = snapshot.online ? entries.find((m) => (m.model_name || m.id).toLowerCase() === modelName) ||
+    entries.find((m) => m.match && new RegExp(m.match, "i").test(modelName)) : null;
   const choice = readJson(choiceFile());
   const shared = sharedState(cat);
-  const wanted = sharedWanted(cat);
+  const wantedOf = (m) => sharedWanted(cat, m);
   const queue = queueView(cat);
   const inQueue = new Set(queue.map((x) => x.id));
   const models = (cat.models || []).map((m) => {
@@ -1060,10 +1071,11 @@ function modelsView() {
     return {
       id: m.id, name: m.name, preset: m.preset || null, match: m.match || m.id, description: m.description || {}, experts_gib: m.experts_gib || null,
       fits_ram_gib: m.fits_ram_gib || null, fits: fitsOf(m), short: ramShort(m) ? "ram" : vramShort(m) ? "vram" : null, recommended: !!rec && rec.id === m.id, default_r: m.default_r ?? null, pending: !!m.pending,
-      local: loc, shared_missing: loc.complete ? (LAUNCHER ? shared.filter((x) => !x.optional && !x.local.complete).map((x) => x.name) : sharedMissing(m)) : [],
+      engine: m.engine || null,
+      local: loc, shared_missing: loc.complete ? (LAUNCHER ? sharedFor(cat, m).filter((x) => !x.optional && !localState(x).complete).map((x) => x.name) : sharedMissing(m)) : [],
       free_bytes: freeBytes(m.local_dir), download: dlView(m), running: !!runningModel && runningModel.id === m.id,
       // 11/17 W1: the shared parts its download would bring (not here, not already on the list), and how much they are
-      shared_pending: wanted.filter((s) => !inQueue.has(s.id)).map((s) => s.name), shared_bytes: wanted.filter((s) => !inQueue.has(s.id)).reduce((a, s) => a + itemLeft(s), 0),
+      shared_pending: wantedOf(m).filter((s) => !inQueue.has(s.id)).map((s) => s.name), shared_bytes: wantedOf(m).filter((s) => !inQueue.has(s.id)).reduce((a, s) => a + itemLeft(s), 0),
     };
   });
   return {
@@ -1073,7 +1085,9 @@ function modelsView() {
     choice: choice ? { model: choice.model, r: choice.r ?? null } : null,
     // 11/15 app1115: the shared parts, whether this is a first run (no model, or a shared part missing), and whether the launcher
     // is behind this relay (settings and "stop everything" are offered only then)
-    shared, first_run: !models.some((m) => m.local.complete) || shared.some((x) => !x.optional && !x.local.complete),
+    // a first run: no model here that has every part it needs (a model on its own engine needs none of the Qwen parts)
+    shared, first_run: !models.some((m) => m.local.complete && !m.shared_missing.length) ||
+      (!models.some((m) => m.local.complete && m.engine) && shared.some((x) => !x.optional && !x.local.complete)),
     launcher: !!LAUNCHER, free_bytes: freeBytes((cat.models || [])[0] && cat.models[0].local_dir),
   };
 }

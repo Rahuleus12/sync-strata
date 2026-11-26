@@ -210,9 +210,12 @@ function ChatView(go, sessionId, subInfo) {
     // 11/15: 押した瞬間に仮の吹き出しを出し，送るのは Outbox が裏で（composer.js）
     optimistic: true,
     onSend: (text, atts) => {
-      Outbox.send(sessionId, text, atts, () => (atts && atts.length
-        ? Attach.send({ sessionId, text, atts, mode: "queue", sel: Store.selection(sessionId) })
-        : Api.prompt(sessionId, text, "queue")), { floor: ready ? lastSeq : null, inboxSeen: new Set(inboxItems().map((x) => x.m.id)) });
+      Outbox.send(sessionId, text, atts, () => {
+        const sel = Store.selection(sessionId);
+        const problem = chatRouteProblem(sel);
+        if (problem) throw new Error(problem);
+        return atts && atts.length ? Attach.send({ sessionId, text, atts, mode: "queue", sel }) : Api.prompt(sessionId, text, "queue");
+      }, { floor: ready ? lastSeq : null, inboxSeen: new Set(inboxItems().map((x) => x.m.id)) });
     },
     onStop: () => Api.cancel(sessionId),
     isRunning: () => running(),

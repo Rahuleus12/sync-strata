@@ -70,7 +70,7 @@ def _layout():
                 "slot_save_path": None, "stop_ps1": None, "dsh_root": j("dsh"), "node": j("node", "dsh-node" + X),
                 "dsh_profile": j("pack", "dsh-profile"), "relay_js": j("chat", "server.mjs"), "proxy_js": j("chat", "session-proxy.mjs"),
                 "catalog": None, "catalog_dist": j("chat", "models", "models.dist.json"), "daily_choice": None, "packs_extra": [],
-                "vision_exe": vis if os.path.isfile(vis) else None}
+                "vision_exe": vis if os.path.isfile(vis) else None, "inkling_kit": _inkling_kit(j("engine-inkling2")) or _inkling_kit(_CHECKOUT_KIT)}
     try:
         d = json.load(open(os.path.join(HERE, "layout.dev.json"), encoding="utf-8"))
     except (OSError, ValueError):
@@ -80,7 +80,20 @@ def _layout():
               "relay_js", "proxy_js", "catalog", "catalog_dist", "daily_choice", "expert_profile", "engine_cwd", "refusal_vector"):
         out[k] = os.path.normpath(d[k]) if d.get(k) else None
     out["engine_lib_dirs"] = [os.path.normpath(x) for x in d.get("engine_lib_dirs") or []] or None
+    # Inkling 2 Mini's engine kit: layout.dev.json's inkling_kit, else the one tools/build_inkling_kit.sh made in this checkout
+    out["inkling_kit"] = _inkling_kit(d.get("inkling_kit") or _CHECKOUT_KIT)
     return out
+
+
+# a source checkout: the kit tools/build_inkling_kit.sh makes (an installed app has no build/ beside it)
+_CHECKOUT_KIT = os.path.join(os.path.dirname(APP), "build", "kit-linux-inkling2")
+
+
+def _inkling_kit(d):
+    """Inkling 2 Mini's engine kit (bin/strata and its own serve/), when it is there: its folder, else None"""
+    d = os.path.normpath(d) if d else None
+    ok = d and os.path.isfile(os.path.join(d, "bin", "strata" + X)) and os.path.isfile(os.path.join(d, "serve", "serve", "server.py"))
+    return d if ok else None
 
 
 LAYOUT = _layout()
@@ -818,6 +831,15 @@ def ensure_ports(s, say=print, persist=True):
     return changed
 
 
+# Keep in sync with the packaged dsh-profile/cordis.patch.yml defaults.
+_DSH_TELEMETRY_ROWS = (
+    "session-telemetry-otel",
+    "session-log-deepseek",
+    "plugin-package-inventory-deepseek",
+    "desktop-product-telemetry",
+    "product-analytics",
+)
+
 DSH_ERROR = None      # 11/16: start_dsh が起こせなかった理由（up の JSON の error に出す）
 PORT_LABEL = {"proxy": ("会話の中継", "proxy_port"), "dsh": ("dsh", "dsh_port"), "relay": ("会話の画面の中継", "relay_port")}
 
@@ -875,10 +897,17 @@ def start_dsh(s, say=print):
         if os.path.exists(url_file):
             os.remove(url_file)
         ws = os.path.dirname(path("workspace", "x"))
-        e = dict(env, DSH_HOME=s["dsh_home"], STRATA_API_KEY=env.get("STRATA_API_KEY") or "strata-local")
+        e = dict(env, DSH_HOME=s["dsh_home"], DSH_TELEMETRY_DISABLED="1",
+                 STRATA_API_KEY=env.get("STRATA_API_KEY") or "strata-local")
+        # Existing profiles are kept on update. A final CLI overlay also covers
+        # home overrides and works even when the optional context dump fails.
+        privacy_patch = os.path.abspath(os.path.join(run, "dsh-privacy.patch.yml"))
+        with open(privacy_patch + ".tmp", "w", encoding="utf-8") as f:
+            f.writelines(f"- id: {row}\n  disabled: true\n" for row in _DSH_TELEMETRY_ROWS)
+        os.replace(privacy_patch + ".tmp", privacy_patch)
         # dsh は窓の無い見張り（dsh_host.py）の子として起こす: ログイン用の URL（トークン入り）だけを抜き出して url_file に置き，記録には伏せて書く
         cmd = [sys.executable, "-X", "utf8", os.path.join(HERE, "dsh_host.py"), "--url-file", url_file, "--log", os.path.join(logs, "dsh.log"),
-               "--", node, DSH_BIN, "web", "--no-open", "--port", str(s["dsh_port"])]
+               "--", node, DSH_BIN, "web", "--patch", privacy_patch, "--no-open", "--port", str(s["dsh_port"])]
         cmd = _sync_ctx.dsh_cmd(cmd, s, node, DSH_BIN, e, say)   # 11/15 係 C: 要約の始まりを文脈の長さに（--patch の上書き）
         import sync_remote; cmd += sync_remote.dsh_args(s)   # 11/15 係 R: スマホの接続の名前を dsh の --trusted-host に
         p = spawn("dsh", cmd, env=e, port=s["dsh_port"], cwd=ws)

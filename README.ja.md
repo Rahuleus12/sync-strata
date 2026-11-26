@@ -84,6 +84,8 @@ setup が PC の GPU を調べて、合うエンジンだけをダウンロー�
 
 設定が「自動」（既定）なら、アプリが積んでいる RAM の量を調べて、この表の行のモデルを選びます。そのときの空き RAM が足りなくても、小さいモデルには切り替えません。代わりに、モデルの一部が SSD に残って遅くなること、閉じると RAM が戻るアプリがあることを注意として出します。モデルの中身と大きさは Hugging Face の各ページにあります: [Sync-XS](https://huggingface.co/hiru2005/Sync-XS)・[Sync-S](https://huggingface.co/hiru2005/Sync-S)・[Sync-M](https://huggingface.co/sync-strata/Sync-M)。
 
+Thinking Machines の Inkling 2 Mini（26B の MoE．DSpark の下書きつき，文脈 256K まで）も，Linux と NVIDIA の GPU で試験的に動かせます: [docs/INKLING2.ja.md](docs/INKLING2.ja.md)．
+
 ## 設定
 
 どの項目も「自動」が既定です。GUI（PC・スマホ）の「起動の設定」か、`sync settings set <名前> <値|auto>` で変えられます。次の起動から効きます。

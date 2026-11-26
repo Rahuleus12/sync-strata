@@ -492,6 +492,9 @@ html, body { overflow: hidden; }
 .msel-x svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .msel-group .msel-item { min-height: 54px; }
 .msel-title { text-align: center; font-weight: 700; font-size: 16px; }
+.msel-status { word-break: normal; overflow-wrap: anywhere; }
+.msel-switch .msel-name { font-weight: 700; }
+.msel-section-title { margin: 0; font-size: 14px; }
 .msel-group { display: flex; flex-direction: column; gap: 2px; border-radius: 18px; overflow: hidden; margin-bottom: 12px; }
 .msel-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 13px 16px; background: rgba(255, 255, 255, 0.05); }
 .msel-item:active { background: rgba(255, 255, 255, 0.09); }

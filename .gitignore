@@ -1,0 +1,6 @@
+# tools/build_inkling_kit.sh (the engine build tree and the Inkling kit)
+/build/
+
+# Local Tauri build outputs
+/app/shell/src-tauri/target/
+/app/shell/src-tauri/gen/

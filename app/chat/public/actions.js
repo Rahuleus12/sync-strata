@@ -131,6 +131,7 @@ function openSessionActions(id, opts = {}) {
       ? sheetItem("restore", tr("Restore from archive"), run(() => setArchived(id, false), "unarchive"))
       : sheetItem("archive", tr("Archive"), run(() => setArchived(id, true), "archive")),
     opts.extra ? opts.extra((instant) => s.close(instant)) : null,
+    h("div", { class: "sheet-note muted" }, tr("Archiving hides the chat from the main list without deleting it. You can restore it from the archive.")),
     opts.footer ? h("div", { class: "sheet-note muted" }, opts.footer) : null,
   ]);
 }

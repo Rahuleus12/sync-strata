@@ -234,6 +234,70 @@
     "tokenizer",
     "mmproj"
    ]
+  },
+  {
+   "id": "inkling-2-mini-uncensored",
+   "name": "Inkling 2 Mini Uncensored",
+   "model_name": "inkling-2-mini-uncensored",
+   "description": {
+    "ja": "Inkling 2 Mini（26B MoE）の検閲を外した版。DSpark で速く、文脈 256K。NVIDIA のみ",
+    "en": "Inkling 2 Mini (26B MoE), uncensored edit. DSpark drafting, 256K context. NVIDIA only",
+    "zh": "Inkling 2 Mini（26B MoE）去审查版。DSpark 加速，256K 上下文。仅 NVIDIA"
+   },
+   "hf": {
+    "repo": "AtomicChat/Inkling-2-Mini-Uncensored-GGUF",
+    "revision": "40886ab636cabb4decf4998224f790b462ab048e",
+    "repo_type": "model"
+   },
+   "files": [
+    {
+     "path": "Inkling-2-Mini-Uncensored-AD-Q4_K.gguf",
+     "bytes": 16525559776,
+     "sha256": "36e99f1f56ca33cb356f19d7e3822938f65af1cde978ad13170238928d4c955f"
+    }
+   ],
+   "local_dir": "inkling-2-mini-uncensored",
+   "engine": "inkling2",
+   "match": "inkling",
+   "needs": [
+    "inkling2-dspark"
+   ],
+   "fits_ram_gib": 24,
+   "default_r": null,
+   "dspark_n": 3,
+   "note": "Inkling 2 Mini（Thinking Machines，Apache 2.0）の AtomicChat の検閲を外した版．エンジンは別のキット engine-inkling2（tools/build_inkling_kit.sh）．Qwen の pack の自動の選びには入らない（experts_gib が無い）．docs/INKLING2.md"
+  },
+  {
+   "id": "inkling-2-mini",
+   "name": "Inkling 2 Mini",
+   "model_name": "inkling-2-mini",
+   "description": {
+    "ja": "Inkling 2 Mini（26B MoE、Unsloth の UD-Q4_K_XL）。DSpark で速く、文脈 256K。NVIDIA のみ",
+    "en": "Inkling 2 Mini (26B MoE, Unsloth UD-Q4_K_XL). DSpark drafting, 256K context. NVIDIA only",
+    "zh": "Inkling 2 Mini（26B MoE，Unsloth UD-Q4_K_XL）。DSpark 加速，256K 上下文。仅 NVIDIA"
+   },
+   "hf": {
+    "repo": "unsloth/Inkling-2-Mini-GGUF",
+    "revision": "7005eb3bf10e03aca23449baac79fdd0d105dd31",
+    "repo_type": "model"
+   },
+   "files": [
+    {
+     "path": "Mainline_Support/Inkling-2-Mini-UD-Q4_K_XL.gguf_file",
+     "bytes": 17629760736,
+     "sha256": "e64276656f072e9b2197a61723667cbdb71da66a716ffd966e572c21088f3cd3"
+    }
+   ],
+   "local_dir": "inkling-2-mini",
+   "engine": "inkling2",
+   "match": "inkling",
+   "needs": [
+    "inkling2-dspark"
+   ],
+   "fits_ram_gib": 24,
+   "default_r": null,
+   "dspark_n": 3,
+   "note": "Unsloth の Mainline_Support の物（mainline llama.cpp の並び．同じ置き場の根の GGUF は別の並びで読めない）．docs/INKLING2.md"
   }
  ],
  "shared": [
@@ -354,6 +418,32 @@
      "sha256": "b1a82259702816a5330d7bd7607cd9676b11780e79ff7348c21103ff3ce49bd0"
     }
    ]
+  },
+  {
+   "id": "inkling2-dspark",
+   "name": "DSpark（Inkling 2 Mini の下書きのモデル）",
+   "role": [
+    "inkling.dspark"
+   ],
+   "optional": true,
+   "hf": {
+    "repo": "unsloth/Inkling-2-Mini-GGUF",
+    "revision": "7005eb3bf10e03aca23449baac79fdd0d105dd31",
+    "repo_type": "model"
+   },
+   "local_dir": "inkling-2-mini-dspark",
+   "files": [
+    {
+     "path": "Mainline_Support/dspark-Inkling-2-Mini-Q8_0.gguf_file",
+     "bytes": 503889952,
+     "sha256": "3da00cf7c31bbe5662b3c0d373ecf782d74d32ef43990acc158ce60c2add72e0"
+    }
+   ],
+   "only_for": [
+    "inkling-2-mini-uncensored",
+    "inkling-2-mini"
+   ],
+   "note": "Inkling 2 Mini の 2 つのモデルが使う（llama.cpp #32218 の形）．無くても動く（書く速さが 3 割ほど落ちる）．only_for のモデルのダウンロードのときだけ落とす"
   }
  ],
  "note_shared": "11/15 app1115: 共通の部品（どのモデルにも要る物）．hf.repo が空のものは置き場が未定（作者が決める．それまではダウンロードできず，手元にあるかだけ見る）．sha256 があれば落とした後にそれで確かめ，無ければ大きさだけ．optional は無くても起動できる物．",

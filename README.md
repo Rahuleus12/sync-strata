@@ -84,6 +84,8 @@ Options (install location, model folder, repair): [docs/INSTALL.md](docs/INSTALL
 
 With the default setting ("auto"), the app checks how much RAM is installed and picks the model for that row. If the free RAM at that moment is not enough, it does not switch to a smaller model. Instead it warns you that part of the model stays on the SSD and runs slower, and that closing some apps would give RAM back. Contents and sizes are on each model page: [Sync-XS](https://huggingface.co/hiru2005/Sync-XS), [Sync-S](https://huggingface.co/hiru2005/Sync-S), [Sync-M](https://huggingface.co/sync-strata/Sync-M).
 
+Inkling 2 Mini (a 26B mixture of experts by Thinking Machines, with DSpark drafting and up to 256K context) also runs on Sync-Strata, experimentally, on Linux with NVIDIA cards: [docs/INKLING2.md](docs/INKLING2.md).
+
 ## Settings
 
 Every setting defaults to "auto". Change them under "Start settings" in the app (PC or phone) or with `sync settings set <name> <value|auto>`. They apply from the next start.

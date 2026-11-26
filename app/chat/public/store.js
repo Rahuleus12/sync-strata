@@ -167,15 +167,17 @@ const Store = (() => {
 
   // Every second while something moves (Strata reading or writing, a session running, Strata starting or stopping),
   // so the counts beside "考え中" keep up; every 3 s otherwise.
-  async function pollStrata() {
-    if (!document.hidden) {
-      try {
-        S.strata = await (await fetch("/m/strata", { cache: "no-store" })).json();
-      } catch {
-        S.strata = null;
-      }
-      emit("strata");
+  async function refreshStrata() {
+    try {
+      S.strata = await (await fetch("/m/strata", { cache: "no-store" })).json();
+    } catch {
+      S.strata = null;
     }
+    emit("strata");
+  }
+
+  async function pollStrata() {
+    if (!document.hidden) await refreshStrata();
     const st = S.strata;
     const moving = (st && st.online && (st.state === "reading" || st.state === "generating"))
       || (st && st.job && !st.job.endedAt) || runningAll().length > 0;
@@ -304,7 +306,7 @@ const Store = (() => {
   }
 
   return {
-    S, start, pollStrata, title, workspaceOf, workspaceName, pendingFor, selection, modelInfo, sortedSessions,
+    S, start, pollStrata, refreshStrata, title, workspaceOf, workspaceName, pendingFor, selection, modelInfo, sortedSessions,
     groupedSessions, archivedSessions, isPinned, isArchived, applyRegistry, removeWorkspace, setTitle,
     runningAll, childrenOf, runningUnder, subLabel, isChild, routeOf,
     on(f) { listeners.add(f); return () => listeners.delete(f); },

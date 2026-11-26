@@ -7,23 +7,61 @@
 // 11/14: the list is in config.js (DSH_CONFIG.allowedProviders)
 const allowedProviders = () => (typeof DSH_CONFIG !== "undefined" && DSH_CONFIG.allowedProviders) || ["strata"];
 
-// 11/10: 名前は「Qwen3.8 Flash-Next Sync-M R7」（本人）．Sync-M か Sync-S かは，動いている Strata の名乗り（/m/strata の model，
-// 例 qwen3.8-flash-next-sync-m）から．止まっているときは最後に見たほう（はじめは Sync-M）．
-// 11/14: the family name and the first pack's name come from config.js
+// The Qwen pack comes from the live engine name, not the chat's R4/R7/R10 route.
 const modelFamily = () => (typeof DSH_CONFIG !== "undefined" && typeof DSH_CONFIG.modelFamily === "string" ? DSH_CONFIG.modelFamily : "");
-let lastPack = null;
-function packLabel() {
-  const st = Store.S.strata;
-  const m = st && st.online && typeof st.model === "string" ? /sync-([a-z]+)$/i.exec(st.model) : null;
-  if (m) lastPack = `Sync-${m[1].toUpperCase()}`;
-  if (!lastPack) lastPack = (typeof DSH_CONFIG !== "undefined" && Object.values(DSH_CONFIG.strataPresets || {})[0]) || "Sync-M";
-  return lastPack;
-}
 const withFamily = (rest) => [modelFamily(), rest].filter(Boolean).join(" ");
+function qwenModelName(model) {
+  const match = /^(?:qwen3\.8[ -]flash[ -]next(?:[ -]sync-([a-z]+))?|sync-([a-z]+))$/i.exec(model || "");
+  if (!match) return null;
+  const pack = (match[1] || match[2])?.toLowerCase();
+  if (!pack) return modelFamily() || model;
+  const preset = typeof DSH_CONFIG !== "undefined" && DSH_CONFIG.strataPresets?.[`sync${pack}`];
+  return withFamily(preset || `Sync-${pack.toUpperCase()}`);
+}
 // 11/15 本人: 選べる tail skip は R4・R7・R10．R10 は「省かない」（エンジンへは 0．会話の中継が strata-r10 → 0 に読み替える）
 const rLabel = (r) => (Number(r) === 10 ? tr("R10 (Tail-Skip off)") : `R${r}`);
 const SHOWN_R = [4, 7, 10];
-const fullModelName = (r) => withFamily(`${packLabel()} ${rLabel(r)}`);
+
+
+const INKLING_NAMES = new Map([
+  ["inkling-2-mini", "Inkling 2 Mini"],
+  ["inkling-2-mini-uncensored", "Inkling 2 Mini Uncensored"],
+]);
+const inklingId = (model) => {
+  const id = String(model || "").toLowerCase();
+  return INKLING_NAMES.has(id) ? id : null;
+};
+
+function localModelName(model) {
+  return INKLING_NAMES.get(inklingId(model)) || qwenModelName(model) || model;
+}
+
+function runningChatModel() {
+  const st = Store.S.strata;
+  return st?.online && st.state !== "unloaded" && !strataJobRunning() ? st.model || null : null;
+}
+
+function defaultChatRoute(fallback) {
+  const id = inklingId(runningChatModel());
+  const route = id && { provider: "strata", model: id };
+  return route && Store.modelInfo(route) ? route : fallback;
+}
+
+// The API can serve requests addressed to a different model name. Don't silently send a chat to the wrong variant.
+function chatRouteProblem(sel) {
+  if (sel && sel.provider !== "strata") return "";
+  const running = runningChatModel();
+  const inkling = inklingId(running);
+  const selected = sel && inklingId(sel.model);
+  if (strataJobRunning()) return tr("Wait for the local model operation to finish, then send again.");
+  if (inkling && !Store.modelInfo({ provider: "strata", model: inkling })) {
+    return tr("This Inkling variant is not in the chat catalog. Try reloading, or switch the local model.");
+  }
+  if ((inkling || selected) && inkling !== selected) {
+    return tr("This chat route does not match the running model. Open Choose a model to change the chat route or switch the local model.");
+  }
+  return "";
+}
 
 // 11/15: the PC's spec and the recommended tail skip (GET /m/spec; the PC's numbers also when opened on a phone)
 const Spec = {
@@ -108,7 +146,7 @@ function showCommandResult(name, res) {
 // 10/30: ＋ボタンで画像やファイルを付けられる（attach.js）．付けたものは入力欄の上に並び，× で外せる．送れなかったときは残る
 function Composer(opts) {
   const ta = h("textarea", { rows: 1, placeholder: opts.placeholder || tr("Describe a task or ask a question…"), enterkeyhint: "enter" });
-  const chip = h("button", { class: "chip model", type: "button", onclick: () => openModelSheet(opts.getSelection(), opts.onSelect) });
+  const chip = h("button", { class: "chip model", type: "button", onclick: () => openModelSheet(opts.getSelection, opts.onSelect) });
   const btn = h("button", { class: "send", type: "button", "aria-label": tr("Send") });
   const plus = h("button", { class: "attach-btn", type: "button", "aria-label": tr("Attach images or files"), html: ICONS.plus });
   const strip = h("div", { class: "att-strip hidden" });
@@ -188,7 +226,9 @@ function Composer(opts) {
     btn.disabled = busy || (!has && !stopMode);
     btn.setAttribute("aria-label", stopMode ? tr("Stop") : tr("Send"));
     plus.disabled = busy;
-    chip.textContent = modelLabel(opts.getSelection());
+    const label = modelLabel(opts.getSelection());
+    chip.textContent = label;
+    chip.setAttribute("aria-label", `${tr("Choose a model")} · ${tr("Chat route: {0}", [label])}`);
     chip.append(icon("chevron", "small"));
   }
 
@@ -262,8 +302,11 @@ function Composer(opts) {
     busy = true;
     refresh();
     try {
+      let routeProblem;
       if ((text || atts.length) && (await tryCommand(text))) {
         // 命令として扱った（結果はもう見せた）
+      } else if ((text || atts.length) && (routeProblem = chatRouteProblem(opts.getSelection()))) {
+        throw new Error(routeProblem);
       } else if ((text || atts.length) && opts.optimistic) {
         // 11/15: 送る前に入力欄を空にする（仮の吹き出しは onSend が出す．Outbox）．往復を待たずに次を打てる．
         // onSend がその場で断ったとき（作業場がない等）は，本文と添付をそのまま戻す
@@ -417,74 +460,111 @@ const EFFORT_NAMES = () => ({ off: tr("Off"), none: tr("Off"), low: tr("Low"), m
 const effortName = (e) => { const n = EFFORT_NAMES(); return (e && (n[String(e.id).toLowerCase()] || n[String(e.name).toLowerCase()] || e.name)) || "—"; };
 const rankOf = (m) => { const r = /^strata-r(\d+)$/.exec(m.id); return r ? Number(r[1]) : null; };
 
-// picking a model calls onSelect({provider, model, reasoningEffort}) with the effort kept when the new model has it
-function openModelSheet(current, onSelect) {
-  const cat = Store.S.catalog;
-  if (!cat) return toast(tr("The model list has not loaded yet"));
-  const all = [];
-  for (const g of cat.groups.filter((x) => allowedProviders().includes(x.id))) for (const m of g.models) all.push({ g, m });
-  const isCur = (x) => !!current && current.provider === x.g.id && current.model === x.m.id;
-  const cur = all.find(isCur) || null;
-  const curM = cur && cur.m;
-  const efforts = (curM && curM.reasoning && curM.reasoning.efforts) || [];
-  const curEff = current && (current.reasoningEffort || (curM && curM.reasoning && curM.reasoning.defaultEffort));
-  // 旧の 2 つ（strata・strata-vision）は出さない（本人）．11/15: R4・R7・R10 だけ（R5・R6 を選んでいる古い会話は入力欄の名前で出る）
-  const shown = all.filter((x) => SHOWN_R.includes(rankOf(x.m)))
-    .sort((a, b) => (rankOf(b.m) ?? -1) - (rankOf(a.m) ?? -1));
-  const tags = new Map(); // r -> the place for the "recommended" mark (filled when /m/spec answers)
-  const reasonEl = h("div", { class: "msel-foot muted" }, Spec.reason());
-  if (!Spec.v) Spec.load().then((v) => {
-    if (!v) return;
-    for (const [r, el] of tags) el.replaceChildren(...(v.recommended_r === r ? [recTag()] : []));
-    reasonEl.textContent = Spec.reason();
-  });
-  const pickModel = (x) => {
-    const effs = (x.m.reasoning && x.m.reasoning.efforts) || [];
-    const eff = curEff && effs.some((e) => e.id === curEff) ? curEff : null;
-    close();
-    onSelect({ provider: x.g.id, model: x.m.id, ...(eff ? { reasoningEffort: eff } : {}) });
-  };
-  const item = (x) => {
-    const r = rankOf(x.m);
-    const title = fullModelName(r);
-    const note = MODEL_NOTES()[x.m.id] || "";
-    const tag = h("span", { class: "model-tags" }, Spec.v && Spec.v.recommended_r === r ? recTag() : null);
-    tags.set(r, tag);
-    return h("button", { class: `msel-item${isCur(x) ? " current" : ""}`, type: "button", onclick: () => pickModel(x) },
-      h("div", { class: "msel-text" }, h("div", { class: "msel-name" }, title, tag), h("div", { class: "msel-note" }, note)),
-      isCur(x) ? h("span", { class: "msel-check", html: ICONS.check }) : null);
-  };
-  const effName = effortName(efforts.find((e) => e.id === curEff));
+// Selecting a chat route keeps the effort if the new route supports it. Only the model manager starts an engine.
+function openModelSheet(getSelection, onSelect) {
+  const status = h("div", { class: "sheet-note msel-status", role: "status" });
+  const manageLabel = h("div", { class: "msel-name" });
+  const routes = h("div");
+  let rendered = "";
+  function render() {
+    const st = Store.S.strata;
+    const running = runningChatModel();
+    const inkling = inklingId(running);
+    const qwen = qwenModelName(running);
+    const working = strataJobRunning();
+    const active = working ? tr("A local model operation is in progress.")
+      : running ? tr("Running model: {0}", [localModelName(running)])
+      : st?.online && st.state === "unloaded" ? tr("Strata getting ready")
+      : st?.online === false ? tr("No local model is running.")
+      : tr("Local model status unavailable.");
+    if (status.textContent !== active) status.textContent = active;
+    const action = running ? tr("Switch local model") : tr("Manage local models");
+    if (manageLabel.textContent !== action) manageLabel.textContent = action;
+
+    const cat = Store.S.catalog;
+    const current = getSelection();
+    const key = JSON.stringify([running, current, cat, Spec.v && Spec.v.recommended_r]);
+    if (key === rendered) return;
+    rendered = key;
+
+    const shown = (cat?.groups || []).filter((g) => g.id === "strata" && allowedProviders().includes(g.id))
+      .flatMap((g) => g.models.filter((m) => inkling ? m.id === inkling : qwen && SHOWN_R.includes(rankOf(m))))
+      .sort((a, b) => rankOf(b) - rankOf(a));
+    const isCur = (m) => current?.provider === "strata" && current.model === m.id;
+    const curM = shown.find(isCur);
+    const efforts = curM?.reasoning?.efforts || [];
+    const curEff = current?.reasoningEffort || curM?.reasoning?.defaultEffort;
+    const message = !running ? "" : !cat ? tr("The model list has not loaded yet")
+      : chatRouteProblem(current) || (!shown.length ? tr("No chat route is available for the running model.") : "");
+    routes.replaceChildren(...[
+      message ? h("div", { class: "sheet-note muted" }, message) : null,
+      shown.length ? h("div", { class: "msel-group" }, shown.map((m) => {
+        const r = rankOf(m);
+        return h("button", { class: `msel-item${isCur(m) ? " current" : ""}`, type: "button", "aria-pressed": String(isCur(m)), onclick: () => {
+          const eff = curEff && m.reasoning?.efforts?.some((e) => e.id === curEff) ? curEff : null;
+          s.close();
+          onSelect({ provider: "strata", model: m.id, ...(eff ? { reasoningEffort: eff } : {}) });
+        } }, h("div", { class: "msel-text" },
+          h("div", { class: "msel-name" }, inkling ? INKLING_NAMES.get(inkling) : `${qwen} ${rLabel(r)}`,
+            qwen && Spec.v?.recommended_r === r ? h("span", { class: "model-tags" }, recTag()) : null),
+          qwen ? h("div", { class: "msel-note" }, MODEL_NOTES()[m.id]) : null),
+        isCur(m) ? h("span", { class: "msel-check", html: ICONS.check }) : null);
+      })) : null,
+      qwen && shown.length && Spec.v ? h("div", { class: "msel-foot muted" }, Spec.reason()) : null,
+      efforts.length ? h("button", { class: "msel-effort", type: "button", onclick: () => {
+        s.close(true);
+        openEffortSheet(getSelection, curM, curEff, onSelect);
+      } }, h("span", { class: "msel-effort-label" }, tr("Effort")),
+      h("span", { class: "msel-effort-val" }, effortName(efforts.find((e) => e.id === curEff))),
+      h("span", { class: "msel-chev", html: ICONS.chevron })) : null,
+    ].filter(Boolean));
+  }
+
+  const reopen = () => openModelSheet(getSelection, onSelect);
+  const off = Store.on((topic) => { if (["strata", "catalog", "projections"].includes(topic)) render(); });
   const s = openSheet([
     h("div", { class: "msel-head" },
-      h("button", { class: "msel-x", type: "button", "aria-label": tr("Close"), html: ICONS.close, onclick: () => close() }),
+      h("button", { class: "msel-x", type: "button", "aria-label": tr("Close"), html: ICONS.close, onclick: () => s.close() }),
       h("div", { class: "msel-title" }, tr("Choose a model")),
       h("div", { class: "msel-x-pad" })),
-    h("div", { class: "msel-group" }, shown.map(item)),
-    reasonEl,
-    efforts.length
-      ? h("button", { class: "msel-effort", type: "button", onclick: () => { s.close(true); openEffortSheet(current, curM, curEff, onSelect); } },
-        h("span", { class: "msel-effort-label" }, tr("Effort")),
-        h("span", { class: "msel-effort-val" }, effName),
-        h("span", { class: "msel-chev", html: ICONS.chevron }))
-      : null]);
-  function close() { s.close(); }
+    status,
+    h("div", { class: "msel-group" }, h("button", { class: "msel-item msel-switch", type: "button", onclick: () => {
+      s.close(true);
+      openStrataSheet({ onBack: reopen });
+    } }, h("div", { class: "msel-text" }, manageLabel,
+      h("div", { class: "msel-note" }, tr("Download, start, or switch Qwen and Inkling for all chats."))),
+    h("span", { class: "msel-chev", html: ICONS.chevron }))),
+    h("h2", { class: "msel-section-title" }, tr("Chat routes")),
+    h("div", { class: "sheet-note muted" }, tr("Chat routes change this chat only. They do not start or switch the local model.")),
+    routes,
+  ], { onClose: off });
+  render();
+  if (!Spec.v) Spec.load().then(() => { if (s.sheet.isConnected) render(); });
 }
 
 // the effort sheet the model sheet's last row opens: the current model's efforts by name, a check on the one in use; ← goes
 // back to the model sheet
-function openEffortSheet(current, m, curEff, onSelect) {
+function openEffortSheet(getSelection, m, curEff, onSelect) {
+  const current = getSelection();
   const efforts = (m && m.reasoning && m.reasoning.efforts) || [];
   const s = openSheet([
     h("div", { class: "msel-head" },
       h("button", { class: "msel-x", type: "button", "aria-label": tr("Back"), html: ICONS.back,
-        onclick: () => { s.close(true); openModelSheet(current, onSelect); } }),
+        onclick: () => { s.close(true); openModelSheet(getSelection, onSelect); } }),
       h("div", { class: "msel-title" }, tr("Effort")),
       h("div", { class: "msel-x-pad" })),
     h("div", { class: "msel-group" }, efforts.map((e) => {
       const on = e.id === curEff;
       return h("button", { class: `msel-item${on ? " current" : ""}`, type: "button",
-        onclick: () => { s.close(); onSelect({ provider: current.provider, model: current.model, reasoningEffort: e.id }); } },
+        onclick: () => {
+          s.close(true);
+          const now = getSelection();
+          if (now?.provider !== current.provider || now?.model !== current.model || !runningChatModel() || chatRouteProblem(current)) {
+            openModelSheet(getSelection, onSelect);
+            return;
+          }
+          onSelect({ provider: current.provider, model: current.model, reasoningEffort: e.id });
+        } },
       h("div", { class: "msel-text" }, h("div", { class: "msel-name" }, effortName(e))),
       on ? h("span", { class: "msel-check", html: ICONS.check }) : null);
     }))]);

@@ -27,11 +27,11 @@ function SidePanel(go, sessionId, parentId) {
   const head = (text) => h("div", { class: "side-title" }, text);
 
   function renderStrata() {
-    const st = Store.S.strata;
+    const running = runningChatModel();
     const pill = h("button", { class: "pill-slot", type: "button", "aria-label": tr("Strata status (opens the session it is writing for)"),
       onclick: () => (strataBusy() ? jumpToWriting(go) : openStrataSheet()) }, strataPill());
     strata.replaceChildren(head("Strata"),
-      h("div", { class: "side-row" }, pill, st && st.online && st.model ? h("span", { class: "muted small" }, strataPresetName(st.model)) : null),
+      h("div", { class: "side-row" }, pill, running ? h("span", { class: "muted small" }, localModelName(running)) : null),
       h("button", { class: "btn ghost slim side-btn", type: "button", onclick: () => openStrataSheet() }, tr("Start / stop Strata")));
   }
 
